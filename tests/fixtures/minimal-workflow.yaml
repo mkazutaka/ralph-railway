@@ -1,0 +1,12 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: minimal
+  version: "0.1.0"
+do:
+  - greet:
+      set:
+        message: "hello world"
+  - finish:
+      set:
+        done: true

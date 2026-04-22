@@ -1,0 +1,19 @@
+document:
+  dsl: "1.0.3"
+  namespace: ralph
+  name: agent-e2e
+  version: "0.1.0"
+do:
+  - phase1:
+      for:
+        each: m
+        in: ${ .input.modules }
+      do:
+        - generate:
+            call: claude
+            with:
+              prompt: "Generate module ${ .var.m }"
+  - phase2_review:
+      call: claude
+      with:
+        prompt: "Review modules"

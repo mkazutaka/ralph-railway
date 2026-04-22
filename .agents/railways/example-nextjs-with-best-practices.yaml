@@ -1,0 +1,46 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: nextjs with best practices
+  version: "0.1.0"
+  title: "Scaffold a Next.js Todo app, then implement ↔ review on a loop"
+
+do:
+  - scaffold:
+      run:
+        shell:
+          command: >-
+            npx --yes create-next-app@latest .
+            --typescript --app --tailwind --eslint --no-src-dir
+            --import-alias "@/*" --use-npm --yes
+
+  - install_skill:
+      run:
+        shell:
+          command: >-
+            npx --yes skills add vercel-labs/agent-skills
+            --skill vercel-react-best-practices -a claude-code -y
+
+  - build_loop:
+      for:
+        each: tick
+        in: ${ [range(1; 30)] }
+      while: ${ ((.output.read_review.stdout // "") | contains("<promise>APPROVED</promise>")) | not }
+      do:
+        - implement:
+            call: claude
+            with:
+              prompt: |
+                If REVIEW.md exists, apply the requested changes.
+
+        - review:
+            call: claude
+            with:
+              prompt: |
+                Review app using the `react-best-practices` skill.
+                Write findings to REVIEW.md, ending with
+                <promise>APPROVED</promise> or <promise>CHANGES_REQUESTED</promise>.
+
+        - read_review:
+            run: { shell: { command: "cat REVIEW.md 2>/dev/null || true" } }
+
