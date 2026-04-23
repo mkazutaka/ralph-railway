@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import type { ExecutionContext } from '../engine/context';
 import { registerRunner, type TaskRunner } from './base';
 
@@ -59,13 +60,21 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    // Decode per-chunk via StringDecoder so a multibyte UTF-8 sequence split
+    // across two `data` events doesn't surface as U+FFFD in the streamed
+    // output. Trailing bytes are buffered inside the decoder until the next
+    // write() completes the sequence (or .end() flushes whatever remains).
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
     proc.stdout.on('data', (c: Buffer) => {
       stdoutChunks.push(c);
-      ctx.shellEmit.stdout?.(c.toString('utf8'));
+      const s = stdoutDecoder.write(c);
+      if (s) ctx.shellEmit.stdout?.(s);
     });
     proc.stderr.on('data', (c: Buffer) => {
       stderrChunks.push(c);
-      ctx.shellEmit.stderr?.(c.toString('utf8'));
+      const s = stderrDecoder.write(c);
+      if (s) ctx.shellEmit.stderr?.(s);
     });
 
     proc.once('error', (err) => {
@@ -75,6 +84,10 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
 
     proc.once('close', (code, signal) => {
       cleanup();
+      const tailOut = stdoutDecoder.end();
+      if (tailOut) ctx.shellEmit.stdout?.(tailOut);
+      const tailErr = stderrDecoder.end();
+      if (tailErr) ctx.shellEmit.stderr?.(tailErr);
       // Mirror shell convention: a signal-terminated process reports 128 + N.
       const finalCode = code ?? (signal ? 128 : 1);
       resolve({
