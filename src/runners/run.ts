@@ -59,8 +59,14 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    proc.stdout.on('data', (c: Buffer) => stdoutChunks.push(c));
-    proc.stderr.on('data', (c: Buffer) => stderrChunks.push(c));
+    proc.stdout.on('data', (c: Buffer) => {
+      stdoutChunks.push(c);
+      ctx.shellEmit.stdout?.(c.toString('utf8'));
+    });
+    proc.stderr.on('data', (c: Buffer) => {
+      stderrChunks.push(c);
+      ctx.shellEmit.stderr?.(c.toString('utf8'));
+    });
 
     proc.once('error', (err) => {
       cleanup();

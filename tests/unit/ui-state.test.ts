@@ -265,3 +265,37 @@ test('task:start re-entry flushes any buffered text from the prior run', () => {
   const text = s.logEntries[1];
   if (text?.kind === 'text') expect(text.text).toBe('half-said');
 });
+
+test('consecutive shell:stdout chunks coalesce into a single shell-stdout entry', () => {
+  const s = apply(initialState(0), [
+    { kind: 'task:start', path: ['sh'], taskKind: 'run' },
+    { kind: 'shell:stdout', path: ['sh'], chunk: 'line1\n' },
+    { kind: 'shell:stdout', path: ['sh'], chunk: 'line2\n' },
+    { kind: 'task:end', path: ['sh'], taskKind: 'run', durationMs: 0 },
+  ]);
+  expect(kinds(s.logEntries)).toEqual(['task-start', 'shell-stdout', 'task-end']);
+  const out = s.logEntries[1];
+  if (out?.kind === 'shell-stdout') expect(out.text).toBe('line1\nline2\n');
+});
+
+test('shell:stdout and shell:stderr interleave by flushing each other', () => {
+  const s = apply(initialState(0), [
+    { kind: 'task:start', path: ['sh'], taskKind: 'run' },
+    { kind: 'shell:stdout', path: ['sh'], chunk: 'hello\n' },
+    { kind: 'shell:stderr', path: ['sh'], chunk: 'warn\n' },
+    { kind: 'shell:stdout', path: ['sh'], chunk: 'bye\n' },
+    { kind: 'task:end', path: ['sh'], taskKind: 'run', durationMs: 0 },
+  ]);
+  expect(kinds(s.logEntries)).toEqual([
+    'task-start',
+    'shell-stdout',
+    'shell-stderr',
+    'shell-stdout',
+    'task-end',
+  ]);
+});
+
+test('shell:stdout events arriving without a pending task are ignored', () => {
+  const s = apply(initialState(0), [{ kind: 'shell:stdout', path: ['sh'], chunk: 'x' }]);
+  expect(s.logEntries).toHaveLength(0);
+});

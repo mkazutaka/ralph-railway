@@ -22,6 +22,8 @@ export type LogEntry =
   | { kind: 'iteration'; depth: number; displayIndex: number; total: number | null }
   | { kind: 'text'; depth: number; text: string }
   | { kind: 'thinking'; depth: number; text: string }
+  | { kind: 'shell-stdout'; depth: number; text: string }
+  | { kind: 'shell-stderr'; depth: number; text: string }
   | {
       kind: 'tool-use';
       depth: number;
@@ -50,6 +52,9 @@ interface PendingTask {
   /** Buffered streaming text, flushed on the next non-text/thinking event. */
   pendingText: string | null;
   pendingThinking: string | null;
+  /** Buffered shell stdout/stderr, flushed on the next non-matching event. */
+  pendingShellStdout: string | null;
+  pendingShellStderr: string | null;
   /** toolUseId → tool name, used to label tool_result entries. */
   toolNamesById: Map<string, string>;
 }
@@ -102,21 +107,39 @@ function flushPending(
   key: string,
 ): { pending: Map<string, PendingTask>; entries: LogEntry[] } {
   const p = pending.get(key);
-  if (!p || (p.pendingText == null && p.pendingThinking == null)) {
+  if (
+    !p ||
+    (p.pendingText == null &&
+      p.pendingThinking == null &&
+      p.pendingShellStdout == null &&
+      p.pendingShellStderr == null)
+  ) {
     return { pending, entries: [] };
   }
   const entries: LogEntry[] = [];
-  // By construction at most one buffer is non-null at a time: each kind
-  // flushes the other when it arrives (see the claude:text / claude:thinking
-  // handlers), so the check below emits at most one entry.
+  // Claude text/thinking: by construction at most one is non-null at a time.
+  // Shell stdout/stderr: each kind flushes the other when it arrives, so at
+  // most one of the two shell buffers is non-null here either.
   if (p.pendingText != null) {
     entries.push({ kind: 'text', depth: p.depth, text: p.pendingText });
   }
   if (p.pendingThinking != null) {
     entries.push({ kind: 'thinking', depth: p.depth, text: p.pendingThinking });
   }
+  if (p.pendingShellStdout != null) {
+    entries.push({ kind: 'shell-stdout', depth: p.depth, text: p.pendingShellStdout });
+  }
+  if (p.pendingShellStderr != null) {
+    entries.push({ kind: 'shell-stderr', depth: p.depth, text: p.pendingShellStderr });
+  }
   const next = new Map(pending);
-  next.set(key, { ...p, pendingText: null, pendingThinking: null });
+  next.set(key, {
+    ...p,
+    pendingText: null,
+    pendingThinking: null,
+    pendingShellStdout: null,
+    pendingShellStderr: null,
+  });
   return { pending: next, entries };
 }
 
@@ -140,6 +163,8 @@ export function reducer(state: State, event: EngineAction): State {
         name,
         pendingText: null,
         pendingThinking: null,
+        pendingShellStdout: null,
+        pendingShellStderr: null,
         toolNamesById: new Map(),
       });
       // Only append the key when it is not already tracked; on re-entry it is
@@ -267,6 +292,46 @@ export function reducer(state: State, event: EngineAction): State {
         ...p,
         pendingThinking: (p.pendingThinking ?? '') + event.text,
         pendingText: null,
+      });
+      return { ...state, logEntries, pending };
+    }
+
+    case 'shell:stdout': {
+      const key = keyOf(event.path);
+      const pending = new Map(state.pending);
+      const p = pending.get(key);
+      if (!p) return state;
+      let logEntries = state.logEntries;
+      if (p.pendingShellStderr != null) {
+        logEntries = [
+          ...logEntries,
+          { kind: 'shell-stderr', depth: p.depth, text: p.pendingShellStderr },
+        ];
+      }
+      pending.set(key, {
+        ...p,
+        pendingShellStdout: (p.pendingShellStdout ?? '') + event.chunk,
+        pendingShellStderr: null,
+      });
+      return { ...state, logEntries, pending };
+    }
+
+    case 'shell:stderr': {
+      const key = keyOf(event.path);
+      const pending = new Map(state.pending);
+      const p = pending.get(key);
+      if (!p) return state;
+      let logEntries = state.logEntries;
+      if (p.pendingShellStdout != null) {
+        logEntries = [
+          ...logEntries,
+          { kind: 'shell-stdout', depth: p.depth, text: p.pendingShellStdout },
+        ];
+      }
+      pending.set(key, {
+        ...p,
+        pendingShellStderr: (p.pendingShellStderr ?? '') + event.chunk,
+        pendingShellStdout: null,
       });
       return { ...state, logEntries, pending };
     }

@@ -1,7 +1,7 @@
 document:
   dsl: "1.0.3"
   namespace: example
-  name: explain project
+  name: explain-project
   version: "0.1.0"
 do:
   - greet:

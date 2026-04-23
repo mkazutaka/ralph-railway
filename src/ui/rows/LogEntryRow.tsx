@@ -2,7 +2,7 @@ import type { StructuredPatchHunk } from 'diff';
 import { memo, type ReactElement } from 'react';
 import type { LogEntry } from '../useEngineState';
 import { IterationRow, TaskEndRow, TaskErrorRow, TaskSkipRow, TaskStartRow } from './TaskRows';
-import { TextRow, ThinkingRow } from './TextRows';
+import { ShellStderrRow, ShellStdoutRow, TextRow, ThinkingRow } from './TextRows';
 import { ToolResultRow, ToolUseRow } from './ToolRows';
 
 // `entry` references live in `state.logEntries` and are never mutated once
@@ -35,6 +35,10 @@ export const LogEntryRow = memo(function LogEntryRow({
       return <TextRow entry={entry} />;
     case 'thinking':
       return <ThinkingRow entry={entry} />;
+    case 'shell-stdout':
+      return <ShellStdoutRow entry={entry} />;
+    case 'shell-stderr':
+      return <ShellStderrRow entry={entry} />;
     case 'tool-use':
       return <ToolUseRow entry={entry} running={running} errored={errored} editHunks={editHunks} />;
     case 'tool-result':

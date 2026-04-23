@@ -8,6 +8,8 @@ export type EngineEvent =
   | { kind: 'iteration:start'; path: TaskPath; index: number; total: number | null }
   | { kind: 'claude:text'; path: TaskPath; text: string }
   | { kind: 'claude:thinking'; path: TaskPath; text: string }
+  | { kind: 'shell:stdout'; path: TaskPath; chunk: string }
+  | { kind: 'shell:stderr'; path: TaskPath; chunk: string }
   | {
       kind: 'claude:tool_use';
       path: TaskPath;
