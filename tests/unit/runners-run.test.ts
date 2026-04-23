@@ -70,6 +70,23 @@ test('run: non-shell configurations throw', async () => {
   ).rejects.toThrow(/only `run.shell` is supported/);
 });
 
+test('run.shell: streams stdout and stderr chunks through ctx.shellEmit', async () => {
+  const ctx = new ExecutionContext({});
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  ctx.shellEmit = {
+    stdout: (c) => stdoutChunks.push(c),
+    stderr: (c) => stderrChunks.push(c),
+  };
+  const out = (await new RunDispatcher().run(ctx, {
+    run: { shell: { command: 'echo out; echo err 1>&2' } },
+  })) as RunShellResult;
+  expect(out.stdout).toBe('out\n');
+  expect(out.stderr).toBe('err\n');
+  expect(stdoutChunks.join('')).toBe('out\n');
+  expect(stderrChunks.join('')).toBe('err\n');
+});
+
 test('run.shell: aborts when the context signal fires', async () => {
   const controller = new AbortController();
   const ctx = new ExecutionContext({ signal: controller.signal });

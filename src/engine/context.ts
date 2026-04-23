@@ -19,6 +19,16 @@ export interface ClaudeEmitHooks {
   toolResult?: (toolUseId: string, content: string, isError: boolean) => void;
 }
 
+/**
+ * Optional hooks that the shell runner invokes to stream stdout/stderr chunks
+ * back to the Engine's event bus. The Engine binds these before dispatching
+ * `run.shell` and restores afterwards.
+ */
+export interface ShellEmitHooks {
+  stdout?: (chunk: string) => void;
+  stderr?: (chunk: string) => void;
+}
+
 export class ExecutionContext {
   readonly input: Record<string, unknown>;
   readonly workDir: string;
@@ -26,6 +36,7 @@ export class ExecutionContext {
   readonly varScope: Scope;
   signal: AbortSignal | undefined;
   claudeEmit: ClaudeEmitHooks = {};
+  shellEmit: ShellEmitHooks = {};
 
   constructor(init: ContextInit = {}, varScope?: Scope, outputs?: Record<string, unknown>) {
     this.input = init.input ?? {};

@@ -208,7 +208,17 @@ export class Engine {
       }
       case 'run': {
         const runner = getRunner('run');
-        const output = await runner.run(ctx, task.body);
+        const prev = ctx.shellEmit;
+        ctx.shellEmit = {
+          stdout: (chunk) => this.bus.emit({ kind: 'shell:stdout', path: taskPath, chunk }),
+          stderr: (chunk) => this.bus.emit({ kind: 'shell:stderr', path: taskPath, chunk }),
+        };
+        let output: unknown;
+        try {
+          output = await runner.run(ctx, task.body);
+        } finally {
+          ctx.shellEmit = prev;
+        }
         ctx.recordOutput(task.name, output);
         return output;
       }
