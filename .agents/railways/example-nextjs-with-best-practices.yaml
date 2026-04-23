@@ -21,6 +21,28 @@ do:
             npx --yes skills add vercel-labs/agent-skills
             --skill vercel-react-best-practices -a claude-code -y
 
+  - install_superpowers:
+      run:
+        shell:
+          command: >-
+            claude plugin install superpowers@claude-plugins-official -s user
+
+  - plan_todos:
+      call: claude
+      with:
+        prompt: |
+          We are building a **Todo app** with Next.js (App Router,
+          TypeScript, Tailwind). Required features:
+          - Add / edit / delete todos
+          - Toggle complete state
+          - Filter by all / active / completed
+          - Persist todos in localStorage
+          - Accessible keyboard interactions and ARIA labels
+
+          Use relevant skills to plan the work, and write the checkable
+          task list to `tasks/todo.md` with one unchecked item per step.
+          Do not implement anything yet.
+
   - build_loop:
       for:
         each: tick
@@ -31,6 +53,7 @@ do:
             call: claude
             with:
               prompt: |
+                implement TODO APP.
                 If REVIEW.md exists, apply the requested changes.
 
         - review:
@@ -38,6 +61,8 @@ do:
             with:
               prompt: |
                 Review app using the `react-best-practices` skill.
+                Also review E2E tests; add them if missing.
+                Review only — no implementation or refactoring.
                 Write findings to REVIEW.md, ending with
                 <promise>APPROVED</promise> or <promise>CHANGES_REQUESTED</promise>.
 
