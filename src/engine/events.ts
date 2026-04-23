@@ -4,6 +4,7 @@ export type EngineEvent =
   | { kind: 'task:start'; path: TaskPath; taskKind: string }
   | { kind: 'task:end'; path: TaskPath; taskKind: string; durationMs: number; output?: unknown }
   | { kind: 'task:error'; path: TaskPath; taskKind: string; message: string }
+  | { kind: 'task:skip'; path: TaskPath; taskKind: string }
   | { kind: 'iteration:start'; path: TaskPath; index: number; total: number | null }
   | { kind: 'claude:text'; path: TaskPath; text: string }
   | { kind: 'claude:thinking'; path: TaskPath; text: string }

@@ -11,6 +11,19 @@ function kinds(entries: LogEntry[]): string[] {
   return entries.map((e) => e.kind);
 }
 
+test('task:skip appends a "task-skip" entry without touching runningPaths/totalTasks', () => {
+  const s = apply(initialState(0), [{ kind: 'task:skip', path: ['gated'], taskKind: 'set' }]);
+  expect(s.logEntries).toHaveLength(1);
+  const e = s.logEntries[0];
+  expect(e?.kind).toBe('task-skip');
+  if (e?.kind === 'task-skip') {
+    expect(e.name).toBe('gated');
+    expect(e.depth).toBe(0);
+  }
+  expect(s.runningPaths).toEqual([]);
+  expect(s.totalTasks).toBe(0);
+});
+
 test('task:start appends a "task-start" entry with depth and tracks runningPaths', () => {
   const s = apply(initialState(0), [{ kind: 'task:start', path: ['a'], taskKind: 'set' }]);
   expect(s.logEntries).toHaveLength(1);

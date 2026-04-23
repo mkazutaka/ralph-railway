@@ -137,6 +137,16 @@ export class Engine {
     segment?: string,
   ): Promise<unknown> {
     const taskPath: TaskPath = [...path, segment ?? task.name];
+    // SLW v1.0.3: TaskBase.if is a runtime expression that determines whether
+    // the task should be run. Falsy → skip without start/end so the trace
+    // shows a single "skipped" entry instead of a phantom start.
+    if (task.body.if != null) {
+      const cond = await ctx.evalStr(task.body.if);
+      if (!cond) {
+        this.bus.emit({ kind: 'task:skip', path: taskPath, taskKind: task.kind });
+        return null;
+      }
+    }
     const startedAt = Date.now();
     this.bus.emit({ kind: 'task:start', path: taskPath, taskKind: task.kind });
     try {

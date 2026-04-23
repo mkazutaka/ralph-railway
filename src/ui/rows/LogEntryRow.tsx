@@ -1,7 +1,7 @@
 import type { StructuredPatchHunk } from 'diff';
 import { memo, type ReactElement } from 'react';
 import type { LogEntry } from '../useEngineState';
-import { IterationRow, TaskEndRow, TaskErrorRow, TaskStartRow } from './TaskRows';
+import { IterationRow, TaskEndRow, TaskErrorRow, TaskSkipRow, TaskStartRow } from './TaskRows';
 import { TextRow, ThinkingRow } from './TextRows';
 import { ToolResultRow, ToolUseRow } from './ToolRows';
 
@@ -27,6 +27,8 @@ export const LogEntryRow = memo(function LogEntryRow({
       return <TaskEndRow entry={entry} />;
     case 'task-error':
       return <TaskErrorRow entry={entry} />;
+    case 'task-skip':
+      return <TaskSkipRow entry={entry} />;
     case 'iteration':
       return <IterationRow entry={entry} />;
     case 'text':
