@@ -8,6 +8,7 @@ import { MAX_LINE_COLS } from './constants';
 type TaskStartEntry = Extract<LogEntry, { kind: 'task-start' }>;
 type TaskEndEntry = Extract<LogEntry, { kind: 'task-end' }>;
 type TaskErrorEntry = Extract<LogEntry, { kind: 'task-error' }>;
+type TaskSkipEntry = Extract<LogEntry, { kind: 'task-skip' }>;
 type IterationEntry = Extract<LogEntry, { kind: 'iteration' }>;
 
 export function TaskStartRow({ entry }: { entry: TaskStartEntry }): ReactElement {
@@ -54,6 +55,15 @@ export function TaskErrorRow({ entry }: { entry: TaskErrorEntry }): ReactElement
           <Text color={theme.error}>{line}</Text>
         </Box>
       ))}
+    </Box>
+  );
+}
+
+export function TaskSkipRow({ entry }: { entry: TaskSkipEntry }): ReactElement {
+  return (
+    <Box>
+      <Text color={theme.dim}>{glyph.arrow} </Text>
+      <Text color={theme.dim}>{entry.name} (skipped)</Text>
     </Box>
   );
 }

@@ -178,6 +178,78 @@ test('try/catch: swallows error and runs catch.do with bound error var', async (
   expect(recovered.msg).toMatch(/unsupported-kind is not supported/);
 });
 
+test('if: truthy condition runs the task and records output', async () => {
+  const tasks = normalizeTaskList([
+    { setup: { set: { go: true } } },
+    { gated: { if: '${ .output.setup.go }', set: { ran: true } } },
+  ]);
+  const ctx = new ExecutionContext({});
+  await new Engine().runTaskList(tasks, ctx);
+  expect(ctx.outputs.gated).toEqual({ ran: true });
+});
+
+test('if: falsy condition skips the task and records no output', async () => {
+  const tasks = normalizeTaskList([
+    { setup: { set: { go: false } } },
+    { gated: { if: '${ .output.setup.go }', set: { ran: true } } },
+  ]);
+  const ctx = new ExecutionContext({});
+  await new Engine().runTaskList(tasks, ctx);
+  expect(ctx.outputs.gated).toBeUndefined();
+});
+
+test('if: skipped task emits a task:skip event but no start/end', async () => {
+  const tasks = normalizeTaskList([{ gated: { if: '${ false }', set: { ran: true } } }]);
+  const ctx = new ExecutionContext({});
+  const events: Array<{ kind: string; name: string }> = [];
+  const engine = new Engine();
+  engine.bus.on((e) => {
+    if (e.kind === 'task:start' || e.kind === 'task:end' || e.kind === 'task:skip') {
+      events.push({ kind: e.kind, name: e.path[e.path.length - 1] ?? '' });
+    }
+  });
+  await engine.runTaskList(tasks, ctx);
+  expect(events).toEqual([{ kind: 'task:skip', name: 'gated' }]);
+});
+
+test('if: applies inside a for-loop body (continue-like skip per iteration)', async () => {
+  const tasks = normalizeTaskList([
+    { acc: { set: { picked: [] } } },
+    {
+      loop: {
+        for: { each: 'item', in: '${ .input.items }' },
+        do: [
+          {
+            keep: {
+              if: '${ .var.item % 2 == 0 }',
+              set: { picked: '${ .output.acc.picked + [.var.item] }' },
+            },
+          },
+          { acc: { set: { picked: '${ .output.keep.picked // .output.acc.picked }' } } },
+        ],
+      },
+    },
+  ]);
+  const ctx = new ExecutionContext({ input: { items: [1, 2, 3, 4, 5] } });
+  await new Engine().runTaskList(tasks, ctx);
+  expect(ctx.outputs.acc).toEqual({ picked: [2, 4] });
+});
+
+test('if: applies to control-flow kinds (skips a `for` whose guard is false)', async () => {
+  const tasks = normalizeTaskList([
+    {
+      loop: {
+        if: '${ false }',
+        for: { each: 'i', in: '${ [range(1; 4)] }' },
+        do: [{ noop: { set: { x: '${ .var.i }' } } }],
+      },
+    },
+  ]);
+  const ctx = new ExecutionContext({});
+  await new Engine().runTaskList(tasks, ctx);
+  expect(ctx.outputs.noop).toBeUndefined();
+});
+
 test('try/catch/retry: retries the try body until success', async () => {
   // Install a temporary `call: probe` handler that throws until attempts >= 3
   // by overriding the `call` dispatcher for this test only.

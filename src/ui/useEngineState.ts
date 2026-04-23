@@ -18,6 +18,7 @@ export type LogEntry =
       toolsCount: number | null;
     }
   | { kind: 'task-error'; depth: number; name: string; message: string }
+  | { kind: 'task-skip'; depth: number; name: string }
   | { kind: 'iteration'; depth: number; displayIndex: number; total: number | null }
   | { kind: 'text'; depth: number; text: string }
   | { kind: 'thinking'; depth: number; text: string }
@@ -204,6 +205,18 @@ export function reducer(state: State, event: EngineAction): State {
         logEntries: [...state.logEntries, ...flushed.entries, entry],
         pending,
         runningPaths: state.runningPaths.filter((k) => k !== key),
+      };
+    }
+
+    case 'task:skip': {
+      // Skipped tasks never emit task:start, so there's no pending row to
+      // flush or running path to remove. Just append a single "skipped" entry.
+      const depth = depthOf(event.path);
+      const name = nameOf(event.path);
+      const entry: LogEntry = { kind: 'task-skip', depth, name };
+      return {
+        ...state,
+        logEntries: [...state.logEntries, entry],
       };
     }
 

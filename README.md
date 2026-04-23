@@ -96,6 +96,22 @@ A deliberate subset of Serverless Workflow v1.0.3:
 | `fork` | Run branches in parallel and merge outputs |
 | `try` / `catch` / `retry` | Failure handling with exponential backoff |
 | `do` | Ordered block |
+| `if` | Per-task guard (any kind). Skip the task when the runtime expression is falsy. |
+
+### `if` (task guard)
+
+`if` is a per-task field defined by the SLW spec on `TaskBase`, so it can be added to any task. When the expression evaluates to a falsy value the task is skipped — the next sibling task runs as if the guarded task wasn't there. Inside a `for.do`, that gives you `continue`-style behavior.
+
+```yaml
+- loop:
+    for: { each: file, in: ${ .input.files } }
+    do:
+      - process:
+          if: ${ .var.file | endswith(".ts") }
+          call: claude
+          with:
+            prompt: "Refactor ${ .var.file }"
+```
 
 ### `call: claude`
 

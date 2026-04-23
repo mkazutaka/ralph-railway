@@ -1,0 +1,31 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: if-guard
+  version: "0.1.0"
+  title: "Skip tasks with `if`, including continue-style skips inside a for loop"
+do:
+  - list_files:
+      run:
+        shell:
+          command: "ls -1"
+
+  - to_array:
+      set:
+        files: ${ .output.list_files.stdout | split("\n") | map(select(length > 0)) }
+
+  - per_file:
+      for:
+        each: file
+        in: ${ .output.to_array.files }
+      do:
+        - inspect_ts:
+            if: ${ .var.file | endswith(".ts") }
+            run:
+              shell:
+                command: "wc -l ${ .var.file }"
+        - summarize_md:
+            if: ${ .var.file | endswith(".md") }
+            run:
+              shell:
+                command: "head -n 1 ${ .var.file }"
