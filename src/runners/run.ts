@@ -41,9 +41,19 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
       cwd: ctx.workDir,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     });
 
-    const onAbort = () => proc.kill();
+    const onAbort = () => {
+      // Kill the whole process group so that child processes (e.g. `sleep`
+      // spawned by the shell) also terminate. Falls back to killing the shell
+      // alone if the group kill fails.
+      try {
+        if (proc.pid !== undefined) process.kill(-proc.pid, 'SIGTERM');
+      } catch {
+        proc.kill();
+      }
+    };
     ctx.signal?.addEventListener('abort', onAbort);
     const cleanup = () => ctx.signal?.removeEventListener('abort', onAbort);
 
