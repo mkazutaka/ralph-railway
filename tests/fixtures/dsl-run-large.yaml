@@ -1,0 +1,10 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: dsl-run-large
+  version: "0.1.0"
+do:
+  - big:
+      run:
+        shell:
+          command: "yes y | head -c 1048576"

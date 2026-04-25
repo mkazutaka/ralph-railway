@@ -25,3 +25,11 @@ test('shell stdout streams via shell:stdout events', async () => {
   expect(joined).toContain('line-2');
   expect(joined).toContain('line-3');
 });
+
+test('large stdout is fully captured (1 MB)', async () => {
+  const wf = loadWorkflow('tests/fixtures/dsl-run-large.yaml');
+  const outputs = await new Engine().runWorkflow(wf);
+  const big = outputs.big as { stdout: string; code: number };
+  expect(big.code).toBe(0);
+  expect(big.stdout.length).toBe(1024 * 1024);
+});
