@@ -1,0 +1,15 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: dsl-while
+  version: "0.1.0"
+do:
+  - tick:
+      for:
+        each: i
+        in: ${ [range(1; 6)] }
+      while: ${ (.output.counter.value // 0) < 3 }
+      do:
+        - counter:
+            set:
+              value: ${ (.output.counter.value // 0) + 1 }
