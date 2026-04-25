@@ -1,0 +1,22 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: dsl-switch
+  version: "0.1.0"
+do:
+  - pick_route:
+      switch:
+        - hot:
+            when: "${ .input.temp >= 30 }"
+            then: hot_branch
+        - cold:
+            when: "${ .input.temp < 10 }"
+            then: cold_branch
+        - mild:
+            then: mild_branch
+  - hot_branch:
+      set: { picked: "hot" }
+  - cold_branch:
+      set: { picked: "cold" }
+  - mild_branch:
+      set: { picked: "mild" }
