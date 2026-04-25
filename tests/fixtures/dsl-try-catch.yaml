@@ -1,0 +1,29 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: dsl-try-catch
+  version: "0.1.0"
+do:
+  - guarded:
+      try:
+        - bad_switch:
+            switch:
+              - never:
+                  when: "${ false }"
+                  then: nowhere
+      catch:
+        as: e
+        retry:
+          delay: { seconds: 0 }
+          backoff:
+            exponential:
+              multiplier: 1
+              maxDelay: { seconds: 0 }
+          limit:
+            attempt:
+              count: 3
+        do:
+          - recovered:
+              set:
+                kind: "${ .var.e.type }"
+                msg: "${ .var.e.message }"
