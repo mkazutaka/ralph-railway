@@ -18,3 +18,8 @@ test('jq supports split / select / range / // / contains', async () => {
   expect(parse.defaulted).toBe('fallback');
   expect(parse.contains_md).toBe(true);
 });
+
+test('invalid jq expression surfaces a runtime error', async () => {
+  const wf = loadWorkflow('tests/fixtures/expr-jq-error.yaml');
+  await expect(new Engine().runWorkflow(wf)).rejects.toThrow();
+});
