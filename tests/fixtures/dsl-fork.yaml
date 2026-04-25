@@ -1,0 +1,15 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: dsl-fork
+  version: "0.1.0"
+do:
+  - parallel:
+      fork:
+        branches:
+          - - left:
+                set:
+                  side: "L"
+          - - right:
+                set:
+                  side: "R"
