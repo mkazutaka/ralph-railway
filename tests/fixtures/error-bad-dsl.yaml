@@ -1,0 +1,8 @@
+document:
+  dsl: "0.0.0"
+  namespace: example
+  name: bad-dsl
+  version: "0.1.0"
+do:
+  - x:
+      set: { y: 1 }

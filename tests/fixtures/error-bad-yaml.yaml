@@ -1,0 +1,5 @@
+document:
+  dsl: "1.0.3"
+  name: bad
+do:
+  - x: [unclosed
