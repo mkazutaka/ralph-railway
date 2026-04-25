@@ -27,6 +27,11 @@ export interface ClaudeEmitHooks {
 export interface ShellEmitHooks {
   stdout?: (chunk: string) => void;
   stderr?: (chunk: string) => void;
+  // Suspend/resume the TUI around an interactive shell. Awaited so the runner
+  // can hand the TTY to the child only after Ink has unmounted, then re-mount
+  // before subsequent task events stream back into the rendered view.
+  interactiveStart?: () => Promise<void> | void;
+  interactiveEnd?: () => Promise<void> | void;
 }
 
 export class ExecutionContext {

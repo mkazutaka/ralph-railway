@@ -25,6 +25,7 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
     command?: unknown;
     stdin?: unknown;
     environment?: Record<string, unknown>;
+    interactive?: unknown;
   };
 
   const command = evaluated.command;
@@ -32,10 +33,17 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
     throw new Error('run.shell requires a non-empty string `command`');
   }
 
+  const interactive = evaluated.interactive !== false;
+  if (interactive && typeof evaluated.stdin === 'string') {
+    throw new Error('run.shell: `interactive` and `stdin` cannot be used together');
+  }
+
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
   for (const [k, v] of Object.entries(evaluated.environment ?? {})) {
     env[k] = String(v);
   }
+
+  if (interactive) return runShellInteractive(ctx, command, env);
 
   return new Promise<RunShellResult>((resolve, reject) => {
     const proc = spawn('sh', ['-c', command], {
@@ -103,6 +111,49 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
       proc.stdin.end();
     }
   });
+}
+
+async function runShellInteractive(
+  ctx: ExecutionContext,
+  command: string,
+  env: Record<string, string>,
+): Promise<RunShellResult> {
+  // The child takes over the controlling TTY, so the TUI must be unmounted
+  // first; the runner waits for the suspend hook to resolve before the spawn.
+  await ctx.shellEmit.interactiveStart?.();
+  try {
+    return await new Promise<RunShellResult>((resolve, reject) => {
+      const proc = spawn('sh', ['-c', command], {
+        cwd: ctx.workDir,
+        env,
+        stdio: 'inherit',
+        detached: true,
+      });
+
+      const onAbort = () => {
+        try {
+          if (proc.pid !== undefined) process.kill(-proc.pid, 'SIGTERM');
+        } catch {
+          proc.kill();
+        }
+      };
+      ctx.signal?.addEventListener('abort', onAbort);
+      const cleanup = () => ctx.signal?.removeEventListener('abort', onAbort);
+
+      proc.once('error', (err) => {
+        cleanup();
+        reject(err);
+      });
+
+      proc.once('close', (code, signal) => {
+        cleanup();
+        const finalCode = code ?? (signal ? 128 : 1);
+        resolve({ stdout: '', stderr: '', code: finalCode });
+      });
+    });
+  } finally {
+    await ctx.shellEmit.interactiveEnd?.();
+  }
 }
 
 registerRunner('run', () => new RunDispatcher());

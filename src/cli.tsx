@@ -8,7 +8,7 @@ import {
   WorkflowValidationError,
 } from './engine/errors';
 import { EngineBus } from './engine/events';
-import { Engine } from './engine/executor';
+import { Engine, type TuiController } from './engine/executor';
 import { loadWorkflow, type Workflow } from './io';
 import { App } from './ui/App';
 import { listWorkflows, resolveWorkflow, workflowSearchDirs } from './workflow-paths';
@@ -162,18 +162,29 @@ async function runInk(
 
   // Mount the TUI first; App subscribes to the bus via useEffect on mount so
   // engine events stream into the reducer as the workflow runs below.
-  const { unmount, waitUntilExit, rerender } = render(
-    <App bus={bus} wf={wf} finishedAt={finishedAt} />,
-  );
+  let handle: ReturnType<typeof render> = render(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
 
-  const engine = new Engine(bus);
+  // Hands the TTY to an interactive child by unmounting Ink, then re-mounts a
+  // fresh App on the same bus when the child exits. Past Static log lines stay
+  // in scrollback; the live region restarts from the next event.
+  const tui: TuiController = {
+    async suspend() {
+      handle.unmount();
+      await new Promise((r) => setTimeout(r, 30));
+    },
+    async resume() {
+      handle = render(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
+    },
+  };
+
+  const engine = new Engine(bus, tui);
   try {
     resultOutputs = await engine.runWorkflow(wf, { workDir: cwd });
     finishedAt = Date.now();
-    rerender(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
+    handle.rerender(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
   } catch (err) {
     finishedAt = Date.now();
-    rerender(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
+    handle.rerender(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
     const mapped = mapErrorToExit(err);
     resultCode = mapped.code;
     resultMessage = mapped.message;
@@ -182,8 +193,8 @@ async function runInk(
   // Give Ink a frame to flush the final state, then tear down the overlay so
   // subsequent stdout/stderr writes don't get interleaved with rerenders.
   await new Promise((r) => setTimeout(r, 50));
-  unmount();
-  await waitUntilExit();
+  handle.unmount();
+  await handle.waitUntilExit();
 
   if (resultOutputs && verbose) {
     process.stdout.write(`${JSON.stringify(resultOutputs, null, 2)}\n`);

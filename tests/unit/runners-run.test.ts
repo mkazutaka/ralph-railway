@@ -6,7 +6,7 @@ import { RunDispatcher, type RunShellResult } from '../../src/runners/run';
 test('run.shell: captures stdout and exit code', async () => {
   const ctx = new ExecutionContext({});
   const out = (await new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'echo hello' } },
+    run: { shell: { command: 'echo hello', interactive: false } },
   })) as RunShellResult;
   expect(out.stdout).toBe('hello\n');
   expect(out.stderr).toBe('');
@@ -16,7 +16,7 @@ test('run.shell: captures stdout and exit code', async () => {
 test('run.shell: captures non-zero exit code without throwing', async () => {
   const ctx = new ExecutionContext({});
   const out = (await new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'exit 3' } },
+    run: { shell: { command: 'exit 3', interactive: false } },
   })) as RunShellResult;
   expect(out.code).toBe(3);
 });
@@ -24,7 +24,7 @@ test('run.shell: captures non-zero exit code without throwing', async () => {
 test('run.shell: captures stderr separately', async () => {
   const ctx = new ExecutionContext({});
   const out = (await new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'echo oops 1>&2; exit 1' } },
+    run: { shell: { command: 'echo oops 1>&2; exit 1', interactive: false } },
   })) as RunShellResult;
   expect(out.stdout).toBe('');
   expect(out.stderr).toBe('oops\n');
@@ -34,7 +34,7 @@ test('run.shell: captures stderr separately', async () => {
 test('run.shell: stdin is forwarded to the process', async () => {
   const ctx = new ExecutionContext({});
   const out = (await new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'cat', stdin: 'piped\ninput' } },
+    run: { shell: { command: 'cat', stdin: 'piped\ninput', interactive: false } },
   })) as RunShellResult;
   expect(out.stdout).toBe('piped\ninput');
   expect(out.code).toBe(0);
@@ -43,7 +43,9 @@ test('run.shell: stdin is forwarded to the process', async () => {
 test('run.shell: environment vars are exposed to the command', async () => {
   const ctx = new ExecutionContext({});
   const out = (await new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'echo "$GREETING"', environment: { GREETING: 'hola' } } },
+    run: {
+      shell: { command: 'echo "$GREETING"', environment: { GREETING: 'hola' }, interactive: false },
+    },
   })) as RunShellResult;
   expect(out.stdout).toBe('hola\n');
 });
@@ -51,7 +53,7 @@ test('run.shell: environment vars are exposed to the command', async () => {
 test('run.shell: command is jq-evaluated against context', async () => {
   const ctx = new ExecutionContext({ input: { msg: 'evaluated' } });
   const out = (await new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'echo ${ .input.msg }' } },
+    run: { shell: { command: 'echo ${ .input.msg }', interactive: false } },
   })) as RunShellResult;
   expect(out.stdout).toBe('evaluated\n');
 });
@@ -79,7 +81,7 @@ test('run.shell: streams stdout and stderr chunks through ctx.shellEmit', async 
     stderr: (c) => stderrChunks.push(c),
   };
   const out = (await new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'echo out; echo err 1>&2' } },
+    run: { shell: { command: 'echo out; echo err 1>&2', interactive: false } },
   })) as RunShellResult;
   expect(out.stdout).toBe('out\n');
   expect(out.stderr).toBe('err\n');
@@ -87,11 +89,58 @@ test('run.shell: streams stdout and stderr chunks through ctx.shellEmit', async 
   expect(stderrChunks.join('')).toBe('err\n');
 });
 
+test('run.shell: interactive mode invokes suspend/resume hooks', async () => {
+  const ctx = new ExecutionContext({});
+  const calls: string[] = [];
+  ctx.shellEmit = {
+    interactiveStart: () => {
+      calls.push('start');
+    },
+    interactiveEnd: () => {
+      calls.push('end');
+    },
+  };
+  const out = (await new RunDispatcher().run(ctx, {
+    run: { shell: { command: 'true', interactive: true } },
+  })) as RunShellResult;
+  expect(out.code).toBe(0);
+  expect(out.stdout).toBe('');
+  expect(out.stderr).toBe('');
+  expect(calls).toEqual(['start', 'end']);
+});
+
+test('run.shell: interactive end hook fires even on non-zero exit', async () => {
+  const ctx = new ExecutionContext({});
+  const calls: string[] = [];
+  ctx.shellEmit = {
+    interactiveStart: () => {
+      calls.push('start');
+    },
+    interactiveEnd: () => {
+      calls.push('end');
+    },
+  };
+  const out = (await new RunDispatcher().run(ctx, {
+    run: { shell: { command: 'exit 7', interactive: true } },
+  })) as RunShellResult;
+  expect(out.code).toBe(7);
+  expect(calls).toEqual(['start', 'end']);
+});
+
+test('run.shell: interactive + stdin combination is rejected', async () => {
+  const ctx = new ExecutionContext({});
+  await expect(
+    new RunDispatcher().run(ctx, {
+      run: { shell: { command: 'true', interactive: true, stdin: 'x' } },
+    }),
+  ).rejects.toThrow(/`interactive` and `stdin` cannot be used together/);
+});
+
 test('run.shell: aborts when the context signal fires', async () => {
   const controller = new AbortController();
   const ctx = new ExecutionContext({ signal: controller.signal });
   const pending = new RunDispatcher().run(ctx, {
-    run: { shell: { command: 'sleep 5' } },
+    run: { shell: { command: 'sleep 5', interactive: false } },
   }) as Promise<RunShellResult>;
   setTimeout(() => controller.abort(), 30);
   const out = await pending;

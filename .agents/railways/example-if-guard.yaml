@@ -9,6 +9,7 @@ do:
       run:
         shell:
           command: "ls -1"
+          interactive: false
 
   - to_array:
       set:
