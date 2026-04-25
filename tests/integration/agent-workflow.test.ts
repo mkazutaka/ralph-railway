@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 test('agent workflow runs end-to-end with mocked Claude', async () => {
-  const wf = loadWorkflow('tests/fixtures/agent-workflow.yaml');
+  const wf = loadWorkflow('tests/fixtures/dsl-call-claude.yaml');
   const outputs = await new Engine().runWorkflow(wf, {
     input: { modules: ['a', 'b'] },
     workDir: '.',
