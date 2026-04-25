@@ -16,7 +16,15 @@ do:
             then: mild_branch
   - hot_branch:
       set: { picked: "hot" }
+  - bail_hot:
+      switch:
+        - always:
+            then: end
   - cold_branch:
       set: { picked: "cold" }
+  - bail_cold:
+      switch:
+        - always:
+            then: end
   - mild_branch:
       set: { picked: "mild" }
