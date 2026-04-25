@@ -1,0 +1,17 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: expr-jq-complex
+  version: "0.1.0"
+do:
+  - feed:
+      run:
+        shell:
+          command: "printf 'a.ts\\nb.md\\nc.ts\\n'"
+  - parse:
+      set:
+        files: "${ .output.feed.stdout | split(\"\\n\") | map(select(length > 0)) }"
+        ts_only: "${ .output.feed.stdout | split(\"\\n\") | map(select(endswith(\".ts\"))) }"
+        first_three: "${ [range(1; 4)] }"
+        defaulted: "${ (.input.missing // \"fallback\") }"
+        contains_md: "${ .output.feed.stdout | contains(\"b.md\") }"

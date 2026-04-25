@@ -1,0 +1,10 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: dsl-run-nonzero
+  version: "0.1.0"
+do:
+  - failing:
+      run:
+        shell:
+          command: "echo on-stdout && echo on-stderr 1>&2 && exit 7"

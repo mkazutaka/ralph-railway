@@ -3,7 +3,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const FIXTURE = resolve('tests/fixtures/minimal-workflow.yaml');
+const FIXTURE = resolve('tests/fixtures/cli-minimal.yaml');
 const CLI = resolve('src/cli.tsx');
 
 let tmp: string;
@@ -111,7 +111,7 @@ test('-- sentinel forwards dash-prefixed args to the workflow', async () => {
 });
 
 test('expands <ARGUMENTS> and <N> end-to-end in --plain --verbose', async () => {
-  const ARGS_FIXTURE = resolve('tests/fixtures/args-workflow.yaml');
+  const ARGS_FIXTURE = resolve('tests/fixtures/cli-args.yaml');
   copyFileSync(ARGS_FIXTURE, join(tmp, '.agents/railways/args-demo.yaml'));
 
   const { code, out } = await run(['args-demo', 'alpha', 'beta', '--plain', '--verbose']);

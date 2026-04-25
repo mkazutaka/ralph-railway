@@ -1,0 +1,10 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: dsl-run-streaming
+  version: "0.1.0"
+do:
+  - chatty:
+      run:
+        shell:
+          command: "for i in 1 2 3; do echo line-$i; done"

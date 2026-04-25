@@ -16,7 +16,7 @@ function write(name: string, content: string): string {
 
 describe('loadWorkflow', () => {
   test('parses minimal fixture into a hydrated Workflow', () => {
-    const wf = loadWorkflow('tests/fixtures/minimal-workflow.yaml');
+    const wf = loadWorkflow('tests/fixtures/cli-minimal.yaml');
     expect(wf.document.dsl).toBe('1.0.3');
     expect(wf.document.name).toBe('minimal');
     expect(Array.isArray(wf.do)).toBe(true);

@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 test('agent workflow runs end-to-end with mocked Claude', async () => {
-  const wf = loadWorkflow('tests/fixtures/agent-workflow.yaml');
+  const wf = loadWorkflow('tests/fixtures/dsl-call-claude.yaml');
   const outputs = await new Engine().runWorkflow(wf, {
     input: { modules: ['a', 'b'] },
     workDir: '.',
@@ -64,4 +64,49 @@ test('agent workflow runs end-to-end with mocked Claude', async () => {
   expect(review).toBeDefined();
   expect(review.text).toContain('mock(');
   expect(review.text).toContain('Review modules');
+});
+
+const errorQuery = (() => {
+  return (async function* () {
+    yield {
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'partial' }] },
+    };
+    yield {
+      type: 'result',
+      subtype: 'error_during_execution',
+      duration_ms: 5,
+      is_error: true,
+      num_turns: 1,
+      stop_reason: 'end_turn',
+      total_cost_usd: 0,
+    };
+  })();
+}) as unknown as QueryFn;
+
+class ErrorMockingCallDispatcher implements TaskRunner {
+  private readonly real = new CallDispatcher();
+  async run(ctx: ExecutionContext, body: Record<string, any>): Promise<unknown> {
+    if (body.call === 'claude') {
+      return new ClaudeRunner(errorQuery).run(ctx, body);
+    }
+    return this.real.run(ctx, body);
+  }
+}
+
+test('claude is_error: true surfaces as outputs.<task>.isError === true', async () => {
+  registerRunner('call', () => new ErrorMockingCallDispatcher());
+  try {
+    const wf = loadWorkflow('tests/fixtures/dsl-call-claude.yaml');
+    const outputs = await new Engine().runWorkflow(wf, {
+      input: { modules: ['x'] },
+      workDir: '.',
+    });
+    const generate = outputs.generate as { isError: boolean; text: string };
+    expect(generate).toBeDefined();
+    expect(generate.isError).toBe(true);
+    expect(generate.text).toContain('partial');
+  } finally {
+    registerRunner('call', () => new CallDispatcher());
+  }
 });
