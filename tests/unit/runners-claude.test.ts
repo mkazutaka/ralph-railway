@@ -177,16 +177,20 @@ test('emits text, tool_use, and tool_result via claudeEmit hooks', async () => {
 });
 
 test('exposes session_id from result message as sessionId', async () => {
+  const expectedSessionId = 'sess-fixed-123';
   const fake = createStrictQuery(() =>
     (async function* () {
       yield assistantMessage([textBlock('hi')]);
-      yield resultMessage({ duration_ms: 1, total_cost_usd: 0 });
+      yield resultMessage({
+        duration_ms: 1,
+        total_cost_usd: 0,
+        session_id: expectedSessionId,
+      });
     })(),
   );
   const ctx = new ExecutionContext({});
   const out = await new ClaudeRunner(fake).run(ctx, { call: 'claude', with: { prompt: 'p' } });
-  expect(typeof out.sessionId).toBe('string');
-  expect((out.sessionId ?? '').length).toBeGreaterThan(0);
+  expect(out.sessionId).toBe(expectedSessionId);
 });
 
 test('with.resume / with.session_id pass through as resume/sessionId SDK options', async () => {

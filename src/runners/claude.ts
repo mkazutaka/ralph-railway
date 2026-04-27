@@ -19,7 +19,7 @@ export interface ClaudeRunResult {
   durationMs: number;
   totalCostUsd: number;
   isError: boolean;
-  sessionId: string | null;
+  sessionId: string;
 }
 
 const toCamel = (k: string): string => k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -115,7 +115,7 @@ export class ClaudeRunner implements TaskRunner {
       durationMs: resultMsg.duration_ms,
       totalCostUsd: resultMsg.total_cost_usd,
       isError: resultMsg.is_error,
-      sessionId: resultMsg.session_id ?? null,
+      sessionId: resultMsg.session_id,
     };
   }
 }

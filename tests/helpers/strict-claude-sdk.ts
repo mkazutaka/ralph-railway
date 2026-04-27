@@ -25,6 +25,7 @@ interface ResultMessageOverrides {
   total_cost_usd?: number;
   result?: string;
   errors?: string[];
+  session_id?: string;
 }
 
 export function createStrictQuery(
@@ -109,7 +110,7 @@ export function resultMessage(overrides: ResultMessageOverrides = {}): SDKResult
     modelUsage: modelUsage(),
     permission_denials: [],
     uuid: randomUUID(),
-    session_id: randomUUID(),
+    session_id: overrides.session_id ?? randomUUID(),
   };
 
   if (subtype === 'success') {
