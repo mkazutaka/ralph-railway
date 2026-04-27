@@ -8,6 +8,10 @@ export class CallDispatcher implements TaskRunner {
       const { ClaudeRunner } = await import('./claude');
       return new ClaudeRunner().run(ctx, body);
     }
+    if (kind === 'codex') {
+      const { CodexRunner } = await import('./codex');
+      return new CodexRunner().run(ctx, body);
+    }
     throw new Error(`call: ${kind} is not supported`);
   }
 }

@@ -1,0 +1,11 @@
+document:
+  dsl: "1.0.3"
+  namespace: ralph
+  name: codex-e2e
+  version: "0.1.0"
+do:
+  - implement:
+      call: codex
+      with:
+        prompt: "Implement ${ .input.feature }"
+        model_reasoning_effort: high
