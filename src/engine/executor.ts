@@ -30,8 +30,16 @@ interface FileTrigger {
   then: string;
 }
 
+export interface TuiController {
+  suspend(): Promise<void> | void;
+  resume(): Promise<void> | void;
+}
+
 export class Engine {
-  constructor(public readonly bus: EngineBus = new EngineBus()) {}
+  constructor(
+    public readonly bus: EngineBus = new EngineBus(),
+    private readonly tui: TuiController | null = null,
+  ) {}
 
   async runWorkflow(
     wf: Specification.Workflow,
@@ -212,6 +220,8 @@ export class Engine {
         ctx.shellEmit = {
           stdout: (chunk) => this.bus.emit({ kind: 'shell:stdout', path: taskPath, chunk }),
           stderr: (chunk) => this.bus.emit({ kind: 'shell:stderr', path: taskPath, chunk }),
+          interactiveStart: () => this.tui?.suspend(),
+          interactiveEnd: () => this.tui?.resume(),
         };
         let output: unknown;
         try {

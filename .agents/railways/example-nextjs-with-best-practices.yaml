@@ -67,5 +67,8 @@ do:
                 <promise>APPROVED</promise> or <promise>CHANGES_REQUESTED</promise>.
 
         - read_review:
-            run: { shell: { command: "cat REVIEW.md 2>/dev/null || true" } }
+            run:
+              shell:
+                command: "cat REVIEW.md 2>/dev/null || true"
+                interactive: false
 

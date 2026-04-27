@@ -176,6 +176,18 @@ The result exposes `threadId`. Pass `thread_id` on a later step to resume:
         command: "bun run build"
 ```
 
+Shell tasks are interactive by default: the child takes over the controlling TTY so prompts from `create-next-app`, `gh auth login`, etc. work. The TUI suspends while the child runs and resumes when it exits.
+
+Set `interactive: false` to capture stdout/stderr into `.output.<task>.stdout` for jq expressions (`while:`, `set:`, etc.). Required when reading the task output programmatically.
+
+```yaml
+- read_review:
+    run:
+      shell:
+        command: "cat REVIEW.md 2>/dev/null || true"
+        interactive: false
+```
+
 ## For Developers
 
 Requirements: Node ≥ 20, [Bun](https://bun.sh) ≥ 1.0.
