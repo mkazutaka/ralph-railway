@@ -123,6 +123,20 @@ A deliberate subset of Serverless Workflow v1.0.3:
       prompt: "Implement the spec in spec.md"
 ```
 
+The result exposes `sessionId`. Pass `resume` to continue a prior session, and
+optionally `fork_session` / `resume_session_at` for forking or anchored resume:
+
+```yaml
+- first:
+    call: claude
+    with: { prompt: "Draft the plan" }
+- followup:
+    call: claude
+    with:
+      prompt: "Now implement step 1"
+      resume: ${ .first.sessionId }
+```
+
 ### `call: codex`
 
 ```yaml
@@ -139,6 +153,19 @@ A deliberate subset of Serverless Workflow v1.0.3:
 thread, and turn. Snake case YAML keys are accepted, for example
 `model_reasoning_effort`, `working_directory`, `output_schema`, and
 `thread_id`.
+
+The result exposes `threadId`. Pass `thread_id` on a later step to resume:
+
+```yaml
+- first:
+    call: codex
+    with: { prompt: "Draft the plan" }
+- followup:
+    call: codex
+    with:
+      prompt: "Now implement step 1"
+      thread_id: ${ .first.threadId }
+```
 
 ### `run: { shell: ... }`
 

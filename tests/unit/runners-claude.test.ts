@@ -176,6 +176,41 @@ test('emits text, tool_use, and tool_result via claudeEmit hooks', async () => {
   expect(out.toolsUsed).toEqual(['Bash']);
 });
 
+test('exposes session_id from result message as sessionId', async () => {
+  const fake = createStrictQuery(() =>
+    (async function* () {
+      yield assistantMessage([textBlock('hi')]);
+      yield resultMessage({ duration_ms: 1, total_cost_usd: 0 });
+    })(),
+  );
+  const ctx = new ExecutionContext({});
+  const out = await new ClaudeRunner(fake).run(ctx, { call: 'claude', with: { prompt: 'p' } });
+  expect(typeof out.sessionId).toBe('string');
+  expect((out.sessionId ?? '').length).toBeGreaterThan(0);
+});
+
+test('with.resume / with.session_id pass through as resume/sessionId SDK options', async () => {
+  const captured: Captured[] = [];
+  const fake = makeFakeQuery({ text: 'ok', capture: captured });
+  const ctx = new ExecutionContext({});
+  await new ClaudeRunner(fake).run(ctx, {
+    call: 'claude',
+    with: {
+      prompt: 'continue',
+      resume: 'sess-123',
+      session_id: 'sess-456',
+      fork_session: true,
+      resume_session_at: 'msg-uuid',
+    },
+  });
+  const opts = captured[0]?.options;
+  expect(opts).toBeDefined();
+  expect(opts.resume).toBe('sess-123');
+  expect(opts.sessionId).toBe('sess-456');
+  expect(opts.forkSession).toBe(true);
+  expect(opts.resumeSessionAt).toBe('msg-uuid');
+});
+
 test('tool_result with array content is flattened to concatenated text', async () => {
   const fake = createStrictQuery(() =>
     (async function* () {
