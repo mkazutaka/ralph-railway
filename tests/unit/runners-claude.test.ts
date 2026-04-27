@@ -2,6 +2,14 @@
 import { expect, test } from 'bun:test';
 import { ExecutionContext } from '../../src/engine/context';
 import { ClaudeRunner, type QueryFn } from '../../src/runners/claude';
+import {
+  assistantMessage,
+  createStrictQuery,
+  resultMessage,
+  textBlock,
+  toolUseBlock,
+  userToolResultMessage,
+} from '../helpers/strict-claude-sdk';
 
 interface Captured {
   prompt: string | unknown;
@@ -15,33 +23,21 @@ function makeFakeQuery(opts: {
   capture?: Captured[];
   hold?: () => Promise<void>;
 }): QueryFn {
-  return (({ prompt, options }: { prompt: string; options?: unknown }) => {
+  return createStrictQuery(({ prompt, options }) => {
     opts.capture?.push({ prompt, options });
     return (async function* () {
       if (opts.hold) await opts.hold();
-      const blocks: Array<Record<string, unknown>> = [];
-      if (opts.text != null) blocks.push({ type: 'text', text: opts.text });
+      const blocks: Parameters<typeof assistantMessage>[0] = [];
+      if (opts.text != null) blocks.push(textBlock(opts.text));
       for (const name of opts.tools ?? []) {
-        blocks.push({ type: 'tool_use', name, input: {} });
+        blocks.push(toolUseBlock(`tool-${name}`, name));
       }
-      yield {
-        type: 'assistant',
-        message: { content: blocks },
-      };
+      yield assistantMessage(blocks);
       if (opts.result !== null) {
-        yield {
-          type: 'result',
-          subtype: 'success',
-          duration_ms: 5,
-          is_error: false,
-          num_turns: 1,
-          stop_reason: 'end_turn',
-          total_cost_usd: 0.0001,
-          ...(opts.result ?? {}),
-        };
+        yield resultMessage({ ...(opts.result ?? {}) });
       }
     })();
-  }) as unknown as QueryFn;
+  });
 }
 
 test('returns concatenated assistant text', async () => {
@@ -148,40 +144,14 @@ test('prompt is jq-evaluated against context', async () => {
 });
 
 test('emits text, tool_use, and tool_result via claudeEmit hooks', async () => {
-  const fake = (() =>
+  const fake = createStrictQuery(() =>
     (async function* () {
-      yield {
-        type: 'assistant',
-        message: {
-          content: [
-            { type: 'text', text: 'first ' },
-            { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } },
-          ],
-        },
-      };
-      yield {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            { type: 'tool_result', tool_use_id: 't1', content: 'file.txt\n', is_error: false },
-          ],
-        },
-      };
-      yield {
-        type: 'assistant',
-        message: { content: [{ type: 'text', text: 'second' }] },
-      };
-      yield {
-        type: 'result',
-        subtype: 'success',
-        duration_ms: 1,
-        is_error: false,
-        num_turns: 1,
-        stop_reason: 'end_turn',
-        total_cost_usd: 0,
-      };
-    })()) as unknown as QueryFn;
+      yield assistantMessage([textBlock('first '), toolUseBlock('t1', 'Bash', { command: 'ls' })]);
+      yield userToolResultMessage('t1', 'file.txt\n');
+      yield assistantMessage([textBlock('second')]);
+      yield resultMessage({ duration_ms: 1, total_cost_usd: 0 });
+    })(),
+  );
 
   const texts: string[] = [];
   const toolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
@@ -207,41 +177,20 @@ test('emits text, tool_use, and tool_result via claudeEmit hooks', async () => {
 });
 
 test('tool_result with array content is flattened to concatenated text', async () => {
-  const fake = (() =>
+  const fake = createStrictQuery(() =>
     (async function* () {
-      yield {
-        type: 'assistant',
-        message: {
-          content: [{ type: 'tool_use', id: 't2', name: 'Read', input: { file_path: '/a' } }],
-        },
-      };
-      yield {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: 't2',
-              content: [
-                { type: 'text', text: 'hello\n' },
-                { type: 'text', text: 'world' },
-              ],
-              is_error: true,
-            },
-          ],
-        },
-      };
-      yield {
-        type: 'result',
-        subtype: 'success',
-        duration_ms: 1,
-        is_error: false,
-        num_turns: 1,
-        stop_reason: 'end_turn',
-        total_cost_usd: 0,
-      };
-    })()) as unknown as QueryFn;
+      yield assistantMessage([toolUseBlock('t2', 'Read', { file_path: '/a' })]);
+      yield userToolResultMessage(
+        't2',
+        [
+          { type: 'text', text: 'hello\n' },
+          { type: 'text', text: 'world' },
+        ],
+        true,
+      );
+      yield resultMessage({ duration_ms: 1, total_cost_usd: 0 });
+    })(),
+  );
 
   const toolResults: Array<{ id: string; content: string; isError: boolean }> = [];
   const ctx = new ExecutionContext({});

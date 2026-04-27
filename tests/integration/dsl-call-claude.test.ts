@@ -5,27 +5,20 @@ import { Engine } from '../../src/engine/executor';
 import { loadWorkflow } from '../../src/io';
 import { registerRunner, type TaskRunner } from '../../src/runners/base';
 import { CallDispatcher } from '../../src/runners/call';
-import { ClaudeRunner, type QueryFn } from '../../src/runners/claude';
+import { ClaudeRunner } from '../../src/runners/claude';
+import {
+  assistantMessage,
+  createStrictQuery,
+  resultMessage,
+  textBlock,
+} from '../helpers/strict-claude-sdk';
 
-const fakeQuery = (({ prompt }: { prompt: string }) => {
+const fakeQuery = createStrictQuery(({ prompt }) => {
   return (async function* () {
-    yield {
-      type: 'assistant',
-      message: {
-        content: [{ type: 'text', text: `mock(${String(prompt).slice(0, 24)})` }],
-      },
-    };
-    yield {
-      type: 'result',
-      subtype: 'success',
-      duration_ms: 5,
-      is_error: false,
-      num_turns: 1,
-      stop_reason: 'end_turn',
-      total_cost_usd: 0,
-    };
+    yield assistantMessage([textBlock(`mock(${String(prompt).slice(0, 24)})`)]);
+    yield resultMessage({ duration_ms: 5, total_cost_usd: 0 });
   })();
-}) as unknown as QueryFn;
+});
 
 class MockingCallDispatcher implements TaskRunner {
   private readonly real = new CallDispatcher();
@@ -66,23 +59,17 @@ test('agent workflow runs end-to-end with mocked Claude', async () => {
   expect(review.text).toContain('Review modules');
 });
 
-const errorQuery = (() => {
+const errorQuery = createStrictQuery(() => {
   return (async function* () {
-    yield {
-      type: 'assistant',
-      message: { content: [{ type: 'text', text: 'partial' }] },
-    };
-    yield {
-      type: 'result',
+    yield assistantMessage([textBlock('partial')]);
+    yield resultMessage({
       subtype: 'error_during_execution',
       duration_ms: 5,
       is_error: true,
-      num_turns: 1,
-      stop_reason: 'end_turn',
       total_cost_usd: 0,
-    };
+    });
   })();
-}) as unknown as QueryFn;
+});
 
 class ErrorMockingCallDispatcher implements TaskRunner {
   private readonly real = new CallDispatcher();
