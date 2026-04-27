@@ -90,6 +90,7 @@ A deliberate subset of Serverless Workflow v1.0.3:
 |---|---|
 | `set` | Assign values / jq expressions to `.output.<name>` |
 | `call: claude` | Invoke Claude via `@anthropic-ai/claude-agent-sdk` (project extension) |
+| `call: codex` | Invoke Codex via `@openai/codex-sdk` (project extension) |
 | `run: { shell: ... }` | Run a shell command; returns `{ stdout, stderr, code }` without throwing on non-zero exit |
 | `for` + `while` | Iteration with a continuation condition per spec |
 | `switch` | Conditional jump to another named task |
@@ -121,6 +122,23 @@ A deliberate subset of Serverless Workflow v1.0.3:
     with:
       prompt: "Implement the spec in spec.md"
 ```
+
+### `call: codex`
+
+```yaml
+- task_name:
+    call: codex
+    with:
+      prompt: "Implement the spec in spec.md"
+      model: "gpt-5.4"
+      sandbox_mode: "workspace-write"
+      approval_policy: "never"
+```
+
+`call: codex` forwards common Codex SDK options from `with` to the client,
+thread, and turn. Snake case YAML keys are accepted, for example
+`model_reasoning_effort`, `working_directory`, `output_schema`, and
+`thread_id`.
 
 ### `run: { shell: ... }`
 
