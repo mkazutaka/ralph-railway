@@ -4,7 +4,10 @@ import { resolve } from 'node:path';
 import { loadWorkflow } from '../../src/io';
 import { listWorkflows } from '../../src/workflow-paths';
 
-const RAILWAYS_DIR = resolve('.agents/railways');
+// The example workflows live at the repo root, not inside this package.
+// Resolve relative to the test file so the suite is cwd-independent.
+const REPO_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
+const RAILWAYS_DIR = resolve(REPO_ROOT, '.agents/railways');
 
 const exampleFiles = readdirSync(RAILWAYS_DIR).filter(
   (f) => f.startsWith('example-') && (f.endsWith('.yaml') || f.endsWith('.yml')),
@@ -27,7 +30,7 @@ test.each(exampleFiles)('example loads and parses: %s', (file) => {
 });
 
 test('listWorkflows surfaces all example files', () => {
-  const items = listWorkflows(process.cwd());
+  const items = listWorkflows(REPO_ROOT);
   const names = items.map((i) => i.name);
   for (const file of exampleFiles) {
     const expected = file.replace(/\.ya?ml$/, '');

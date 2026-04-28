@@ -71,6 +71,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.116",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@openai/codex-sdk": "0.125.0",
     "@serverlessworkflow/sdk": "1.0.3-alpha1",
     "diff": "^9.0.0",
