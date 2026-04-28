@@ -1,0 +1,73 @@
+document:
+  dsl: "1.0.3"
+  namespace: example
+  name: pencil-design-loop
+  version: "0.1.0"
+  title: "Install getdesign, draft a Pencil design, then implement ↔ design-review on a loop"
+
+do:
+  - install_getdesign:
+      run:
+        shell:
+          command: "npx --yes getdesign@latest add claude"
+
+  - draft_design:
+      call: claude
+      with:
+        prompt: |
+          Use the `pencil` MCP tools to create a new `.pen` design file
+          at `design/app.pen` for the UI we are about to build:
+          <ARGUMENTS>
+
+          Steps:
+          1. Call `open_document("new")` to create the file, then save it
+             as `design/app.pen`.
+          2. Use `get_guidelines` to load relevant style guides.
+          3. Use `batch_design` to lay out the screens, components, and
+             states implied by the description above.
+          4. End by calling `get_screenshot` so the design is visible to
+             future runs.
+
+          Do NOT write any application code yet — only the .pen file.
+
+  - plan_todos:
+      call: claude
+      with:
+        prompt: |
+          Read `design/app.pen` via the `pencil` MCP tools
+          (`open_document`, `get_editor_state`, `batch_get`,
+          `get_screenshot`) and write a checkable implementation plan to
+          `tasks/todo.md`, one unchecked item per UI element / screen.
+          Do not implement anything yet.
+
+  - build_loop:
+      for:
+        each: tick
+        in: ${ [range(1; 30)] }
+      while: ${ ((.output.read_review.stdout // "") | contains("<promise>APPROVED</promise>")) | not }
+      do:
+        - implement:
+            call: claude
+            with:
+              prompt: |
+                Implement the UI to match `design/app.pen`.
+                Read the design with the `pencil` MCP tools before coding
+                and check off items in `tasks/todo.md` as you finish them.
+                If `REVIEW.md` exists, apply the requested changes first.
+
+        - review:
+            call: claude
+            with:
+              prompt: |
+                Compare the running implementation against `design/app.pen`
+                using the `pencil` MCP tools (`get_screenshot`,
+                `batch_get`) for the design side and the actual code /
+                rendered UI for the implementation side.
+                Review only — no implementation or refactoring.
+                Write findings to `REVIEW.md`, ending with
+                <promise>APPROVED</promise> when the implementation
+                visually matches the design, otherwise
+                <promise>CHANGES_REQUESTED</promise>.
+
+        - read_review:
+            run: { shell: { command: "cat REVIEW.md 2>/dev/null || true" } }
