@@ -37,6 +37,9 @@
     "apps/web": {
       "name": "@ralph-railway/web",
       "version": "0.0.0",
+      "dependencies": {
+        "ralph-railway": "workspace:*",
+      },
       "devDependencies": {
         "@sveltejs/adapter-auto": "^7.0.1",
         "@sveltejs/adapter-node": "^5.5.4",
