@@ -1,4 +1,14 @@
+# Workspace-wide
 node_modules/
+apps/*/node_modules/
+apps/*/dist/
+apps/*/build/
+apps/*/coverage/
+apps/*/.svelte-kit/
+apps/*/.vite/
+apps/*/.turbo/
+
+# Misc
 dist/
 build/
 coverage/
