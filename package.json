@@ -12,8 +12,9 @@
     "web": "bun run --cwd apps/web dev",
     "web:build": "bun run --cwd apps/web build",
     "web:check": "bun run --cwd apps/web check",
+    "web:test": "bun run --cwd apps/web test",
     "build": "bun run cli:build && bun run web:build",
-    "test": "bun run cli:test",
+    "test": "bun run cli:test && bun run web:test",
     "lint": "bun run cli:lint",
     "typecheck": "bun run cli:typecheck && bun run web:check",
     "check": "bun run lint && bun run typecheck && bun run test"
