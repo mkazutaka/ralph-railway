@@ -27,15 +27,23 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Set package version from tag
+        working-directory: apps/cli
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           npm version "$TAG_VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Check
-        run: bun run check
+      - name: Lint
+        run: bun run cli:lint
+
+      - name: Typecheck
+        run: bun run cli:typecheck
+
+      - name: Test
+        run: bun run cli:test
 
       - name: Build
-        run: bun run build
+        run: bun run cli:build
 
       - name: Publish
+        working-directory: apps/cli
         run: npm publish --provenance --access public

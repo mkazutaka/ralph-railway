@@ -1,79 +1,27 @@
 {
-  "name": "ralph-railway",
-  "version": "0.0.1",
-  "description": "Lay down the rails, and let Coding Agent ride from prompt to Goal.",
-  "keywords": [
-    "claude",
-    "claude-code",
-    "anthropic",
-    "agent",
-    "ai",
-    "workflow",
-    "serverless-workflow",
-    "ralph-loop",
-    "cli"
-  ],
-  "homepage": "https://github.com/mkazutaka/ralph-railway#readme",
-  "bugs": {
-    "url": "https://github.com/mkazutaka/ralph-railway/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mkazutaka/ralph-railway.git"
-  },
-  "license": "MIT",
-  "author": "mkazutaka",
+  "name": "ralph-railway-monorepo",
+  "private": true,
   "type": "module",
-  "bin": {
-    "way": "./dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
+  "workspaces": ["apps/*"],
   "scripts": {
-    "cli": "bun run src/cli.tsx",
-    "start": "node dist/cli.js",
-    "build": "tsup",
-    "dev": "tsup --watch",
-    "clean": "rm -rf dist",
-    "test": "bun test",
-    "test:watch": "bun test --watch",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check src tests",
-    "lint:fix": "biome check --write src tests",
-    "format": "biome format --write src tests",
-    "check": "bun run lint && bun run typecheck && bun test",
-    "prepublishOnly": "bun run check && bun run clean && bun run build",
-    "release": "bun run prepublishOnly && npm publish"
+    "cli": "bun run --cwd apps/cli cli",
+    "cli:build": "bun run --cwd apps/cli build",
+    "cli:test": "bun run --cwd apps/cli test",
+    "cli:typecheck": "bun run --cwd apps/cli typecheck",
+    "cli:lint": "bun run --cwd apps/cli lint",
+    "web": "bun run --cwd apps/web dev",
+    "web:build": "bun run --cwd apps/web build",
+    "web:check": "bun run --cwd apps/web check",
+    "web:test": "bun run --cwd apps/web test",
+    "build": "bun run cli:build && bun run web:build",
+    "test": "bun run cli:test && bun run web:test",
+    "lint": "bun run cli:lint",
+    "typecheck": "bun run cli:typecheck && bun run web:check",
+    "check": "bun run lint && bun run typecheck && bun run test"
   },
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.12",
-    "@types/bun": "latest",
-    "@types/diff": "^8.0.0",
-    "@types/js-yaml": "^4.0.9",
-    "@types/react": "^19.2.14",
-    "tsup": "^8.5.1"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.116",
-    "@openai/codex-sdk": "0.125.0",
-    "@serverlessworkflow/sdk": "1.0.3-alpha1",
-    "diff": "^9.0.0",
-    "ink": "^7.0.1",
-    "ink-spinner": "^5.0.0",
-    "jq-wasm": "^1.1.0-jq-1.8.1",
-    "js-yaml": "^4.1.0",
-    "react": "^19.2.5"
-  },
-  "publishConfig": {
-    "access": "public"
+  "devDependencies": {},
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.1"
   }
 }

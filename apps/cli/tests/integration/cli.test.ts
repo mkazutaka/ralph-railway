@@ -20,12 +20,13 @@ afterAll(() => {
 
 async function run(
   args: string[],
-  opts: { cwd?: string } = {},
+  opts: { cwd?: string; home?: string } = {},
 ): Promise<{ code: number; out: string; err: string }> {
   const proc = Bun.spawn(['bun', 'run', CLI, ...args], {
     cwd: opts.cwd ?? tmp,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: { ...process.env, HOME: opts.home ?? tmp },
   });
   const code = await proc.exited;
   return {
@@ -61,7 +62,7 @@ test('--list prints available workflow names with source', async () => {
 test('--list in a dir with no .agents/railways exits 0 with empty output', async () => {
   const empty = mkdtempSync(join(tmpdir(), 'way-empty-'));
   try {
-    const { code, out } = await run(['--list'], { cwd: empty });
+    const { code, out } = await run(['--list'], { cwd: empty, home: empty });
     expect(code).toBe(0);
     expect(out).toBe('');
   } finally {
