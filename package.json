@@ -1,0 +1,26 @@
+{
+  "name": "ralph-railway-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "cli": "bun run --cwd apps/cli cli",
+    "cli:build": "bun run --cwd apps/cli build",
+    "cli:test": "bun run --cwd apps/cli test",
+    "cli:typecheck": "bun run --cwd apps/cli typecheck",
+    "cli:lint": "bun run --cwd apps/cli lint",
+    "web": "bun run --cwd apps/web dev",
+    "web:build": "bun run --cwd apps/web build",
+    "web:check": "bun run --cwd apps/web check",
+    "build": "bun run cli:build && bun run web:build",
+    "test": "bun run cli:test",
+    "lint": "bun run cli:lint",
+    "typecheck": "bun run cli:typecheck && bun run web:check",
+    "check": "bun run lint && bun run typecheck && bun run test"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=20",
+    "bun": ">=1.1"
+  }
+}
