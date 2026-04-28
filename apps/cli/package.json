@@ -33,7 +33,14 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "bun": ">=1.1"
+  },
+  "exports": {
+    ".": "./dist/cli.js",
+    "./engine": "./src/engine/index.ts",
+    "./engine/*": "./src/engine/*.ts",
+    "./workflow-paths": "./src/workflow-paths.ts"
   },
   "scripts": {
     "cli": "bun run src/cli.tsx",
