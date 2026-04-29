@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { existsSync, statSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { render } from 'ink';
 import { isSupportedShell, renderCompletion, type Shell } from './completions';
 import {
@@ -9,7 +11,7 @@ import {
 } from './engine/errors';
 import { EngineBus } from './engine/events';
 import { Engine } from './engine/executor';
-import { loadWorkflow, type Workflow } from './io';
+import { loadWorkflow, parseWorkflow, type Workflow } from './io';
 import { App } from './ui/App';
 import { listWorkflows, resolveWorkflow, workflowSearchDirs } from './workflow-paths';
 
@@ -22,6 +24,7 @@ interface Flags {
   plain: boolean;
   list: boolean;
   completions: Shell | null;
+  validate: string | null;
   name: string | null;
   args: string[];
   error: string | null;
@@ -36,6 +39,7 @@ function parseArgs(argv: string[]): Flags {
     plain: false,
     list: false,
     completions: null,
+    validate: null,
     name: null,
     args: [],
     error: null,
@@ -87,6 +91,13 @@ function parseArgs(argv: string[]): Flags {
     } else {
       flags.completions = shell;
     }
+  } else if (positionals.length >= 1 && positionals[0] === 'validate') {
+    const target = positionals[1];
+    if (!target) {
+      flags.error = 'validate requires a workflow name or path';
+    } else {
+      flags.validate = target;
+    }
   } else if (positionals.length >= 1) {
     flags.name = positionals[0] ?? null;
     flags.args = positionals.slice(1);
@@ -103,6 +114,8 @@ function usage(): string {
     '                        Extra positionals expand <ARGUMENTS> / <N> in the YAML.',
     '                        Use `--` to forward dash-prefixed args.',
     '  way --list, -l        List available workflows',
+    '  way validate <name|path>',
+    '                        Schema-validate a workflow YAML and exit',
     '  way completions <shell>',
     '                        Print shell completion script (bash|zsh|fish)',
     '  way --verbose         Print outputs JSON after completion',
@@ -125,6 +138,33 @@ function mapErrorToExit(err: unknown): { code: number; message: string } {
   if (err instanceof UserCancelledError) return { code: 130, message: 'cancelled by user' };
   if (err instanceof RalphError) return { code: 1, message: `error: ${err.message}` };
   return { code: 1, message: `unexpected error: ${(err as Error).message}` };
+}
+
+function runValidate(target: string): number {
+  let path: string;
+  if (existsSync(target) && statSync(target).isFile()) {
+    path = resolvePath(target);
+  } else {
+    const resolved = resolveWorkflow(target, process.cwd());
+    if (!resolved) {
+      const tried = workflowSearchDirs(process.cwd())
+        .map((d) => `  - ${d.dir}/${target}.yaml  (${d.source})`)
+        .join('\n');
+      process.stderr.write(`workflow not found: ${target}\nsearched:\n${tried}\n`);
+      return 2;
+    }
+    path = resolved.path;
+  }
+
+  try {
+    parseWorkflow(path);
+    process.stdout.write(`ok: ${path}\n`);
+    return 0;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    process.stderr.write(`invalid: ${path}\n${message}\n`);
+    return 2;
+  }
 }
 
 async function runPlain(
@@ -212,6 +252,9 @@ export async function main(argv: string[]): Promise<number> {
   if (flags.completions) {
     process.stdout.write(renderCompletion(flags.completions));
     return 0;
+  }
+  if (flags.validate !== null) {
+    return runValidate(flags.validate);
   }
   if (flags.list) {
     const items = listWorkflows(process.cwd());
