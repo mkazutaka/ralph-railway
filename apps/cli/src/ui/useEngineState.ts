@@ -1,6 +1,30 @@
 // src/ui/useEngineState.ts
-import { useReducer } from 'react';
+import { useCallback, useReducer, useRef } from 'react';
 import type { EngineEvent, TaskPath } from '../engine/events';
+
+/**
+ * Memory caps. Without these the reducer could retain GBs of streamed Claude
+ * text / tool-result payloads on long workflows and OOM the V8 heap.
+ *
+ * - `MAX_TOOL_RESULT_BYTES`: per-result cap applied at insert time. Tool
+ *   results (file reads, command output, etc.) are the largest single strings
+ *   we observe in the wild — truncate head + tail.
+ * - `MAX_TEXT_BUFFER_BYTES`: per-task accumulating buffer cap for streaming
+ *   `claude:text` / `claude:thinking` / `shell:stdout` / `shell:stderr`.
+ *   Without this a single multi-MB Claude response grows unbounded between
+ *   flushes.
+ * - `LIVE_WINDOW`: entries older than this many positions from the tail have
+ *   their large content fields stripped to free heap. The entries themselves
+ *   stay in the array so `<Static>`'s `items.slice(index)` indexing remains
+ *   correct (Ink already drew them to the terminal — modifying the buffer
+ *   doesn't affect what's on screen).
+ * - `STUB_INTERVAL`: amortize the stubbing pass — only run it once per this
+ *   many newly-out-of-window entries.
+ */
+const MAX_TOOL_RESULT_BYTES = 16 * 1024;
+const MAX_TEXT_BUFFER_BYTES = 64 * 1024;
+const LIVE_WINDOW = 2000;
+const STUB_INTERVAL = 256;
 
 /**
  * One unit emitted to the Static event log. Each entry carries everything the
@@ -68,6 +92,15 @@ export interface State {
   startedAt: number;
   /** Internal: per-path scratchpad. Not for renderer consumption. */
   pending: Map<string, PendingTask>;
+  /**
+   * Bumped on every state-changing reducer call. Acts as the dependency for
+   * `useMemo` consumers that read mutated arrays/maps in place — the array
+   * reference itself no longer changes per dispatch, so callers must depend
+   * on `revision` to detect updates.
+   */
+  revision: number;
+  /** Index up to which `logEntries[i].content/text/input` have been stubbed. */
+  stubbedThrough: number;
 }
 
 export type EngineAction = EngineEvent;
@@ -86,6 +119,54 @@ function depthOf(path: TaskPath): number {
   return Math.max(0, path.length - 1);
 }
 
+function truncateString(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const half = Math.max(64, Math.floor((max - 64) / 2));
+  return `${s.slice(0, half)}\n... [${s.length - max} chars truncated] ...\n${s.slice(s.length - half)}`;
+}
+
+function appendBounded(buf: string | null, chunk: string, max: number): string {
+  const next = (buf ?? '') + chunk;
+  return next.length > max ? truncateString(next, max) : next;
+}
+
+/**
+ * Free the large fields of an old entry so streaming workflows don't retain
+ * GBs of historical payload. Ink's `<Static>` has already drawn the row, so
+ * mutating the in-memory copy has no visual effect — only heap is reclaimed.
+ */
+function stubEntryContent(e: LogEntry): void {
+  switch (e.kind) {
+    case 'text':
+    case 'thinking':
+    case 'shell-stdout':
+    case 'shell-stderr':
+      if (e.text.length > 0) (e as { text: string }).text = '';
+      break;
+    case 'tool-use':
+      // Replace the input object so retained closures over it can be GC'd.
+      if (Object.keys(e.input).length > 0) (e as { input: Record<string, unknown> }).input = {};
+      break;
+    case 'tool-result':
+      if (e.content.length > 0) (e as { content: string }).content = '';
+      break;
+    default:
+      // task-start, task-end, task-error, task-skip, iteration carry only
+      // small primitives — nothing to free.
+      break;
+  }
+}
+
+function maybeStub(state: State): void {
+  const target = Math.max(0, state.logEntries.length - LIVE_WINDOW);
+  if (target - state.stubbedThrough < STUB_INTERVAL) return;
+  for (let i = state.stubbedThrough; i < target; i++) {
+    const e = state.logEntries[i];
+    if (e) stubEntryContent(e);
+  }
+  state.stubbedThrough = target;
+}
+
 export function initialState(now: number = Date.now()): State {
   return {
     logEntries: [],
@@ -94,19 +175,18 @@ export function initialState(now: number = Date.now()): State {
     costUsd: 0,
     startedAt: now,
     pending: new Map(),
+    revision: 0,
+    stubbedThrough: 0,
   };
 }
 
 /**
- * Flush any buffered streaming text/thinking for `key` into log entries. The
- * pending buffers are cleared on the returned scratchpad. Returns a new
- * `pending` map and the entries to append (in order).
+ * Flush any buffered streaming text/thinking/shell for `key` directly into
+ * `state.logEntries`. The pending fields on the scratchpad are nulled in
+ * place. Returns nothing — the reducer reads `state.logEntries` after.
  */
-function flushPending(
-  pending: Map<string, PendingTask>,
-  key: string,
-): { pending: Map<string, PendingTask>; entries: LogEntry[] } {
-  const p = pending.get(key);
+function flushPendingInto(state: State, key: string): void {
+  const p = state.pending.get(key);
   if (
     !p ||
     (p.pendingText == null &&
@@ -114,50 +194,66 @@ function flushPending(
       p.pendingShellStdout == null &&
       p.pendingShellStderr == null)
   ) {
-    return { pending, entries: [] };
+    return;
   }
-  const entries: LogEntry[] = [];
   // Claude text/thinking: by construction at most one is non-null at a time.
   // Shell stdout/stderr: each kind flushes the other when it arrives, so at
   // most one of the two shell buffers is non-null here either.
   if (p.pendingText != null) {
-    entries.push({ kind: 'text', depth: p.depth, text: p.pendingText });
+    state.logEntries.push({ kind: 'text', depth: p.depth, text: p.pendingText });
+    p.pendingText = null;
   }
   if (p.pendingThinking != null) {
-    entries.push({ kind: 'thinking', depth: p.depth, text: p.pendingThinking });
+    state.logEntries.push({ kind: 'thinking', depth: p.depth, text: p.pendingThinking });
+    p.pendingThinking = null;
   }
   if (p.pendingShellStdout != null) {
-    entries.push({ kind: 'shell-stdout', depth: p.depth, text: p.pendingShellStdout });
+    state.logEntries.push({
+      kind: 'shell-stdout',
+      depth: p.depth,
+      text: p.pendingShellStdout,
+    });
+    p.pendingShellStdout = null;
   }
   if (p.pendingShellStderr != null) {
-    entries.push({ kind: 'shell-stderr', depth: p.depth, text: p.pendingShellStderr });
+    state.logEntries.push({
+      kind: 'shell-stderr',
+      depth: p.depth,
+      text: p.pendingShellStderr,
+    });
+    p.pendingShellStderr = null;
   }
-  const next = new Map(pending);
-  next.set(key, {
-    ...p,
-    pendingText: null,
-    pendingThinking: null,
-    pendingShellStdout: null,
-    pendingShellStderr: null,
-  });
-  return { pending: next, entries };
 }
 
+function bump(state: State): State {
+  state.revision += 1;
+  maybeStub(state);
+  return state;
+}
+
+/**
+ * Mutating reducer. Inner collections (`logEntries`, `runningPaths`,
+ * `pending`) are mutated in place; the same `state` reference is returned.
+ * Re-render is driven by `state.revision`, which `useMemo` consumers must
+ * include in their dependency list.
+ *
+ * Why mutate: the previous immutable approach spread `[...state.logEntries,
+ * ...]` and `new Map(state.pending)` on every event, producing O(N²) work
+ * and allocations across N events — the dominant contributor to OOMs on
+ * long workflows. Mutation drops this to O(1) per event.
+ */
 export function reducer(state: State, event: EngineAction): State {
   switch (event.kind) {
     case 'task:start': {
       const key = keyOf(event.path);
       const depth = depthOf(event.path);
       const name = nameOf(event.path);
-      const entry: LogEntry = { kind: 'task-start', depth, name, taskKind: event.taskKind };
       // If this path re-enters while a prior run's buffered text has not yet
       // been flushed (e.g. a for-loop body starting its next iteration without
       // an intervening task:end), flush now so no streaming content is lost.
-      const flushed = state.pending.has(key)
-        ? flushPending(state.pending, key)
-        : { pending: state.pending, entries: [] as LogEntry[] };
-      const pending = new Map(flushed.pending);
-      pending.set(key, {
+      if (state.pending.has(key)) flushPendingInto(state, key);
+      state.logEntries.push({ kind: 'task-start', depth, name, taskKind: event.taskKind });
+      state.pending.set(key, {
         startedAt: Date.now(),
         depth,
         name,
@@ -169,22 +265,15 @@ export function reducer(state: State, event: EngineAction): State {
       });
       // Only append the key when it is not already tracked; on re-entry it is
       // already present so we leave runningPaths unchanged (no duplicates).
-      const runningPaths = state.runningPaths.includes(key)
-        ? state.runningPaths
-        : [...state.runningPaths, key];
-      return {
-        ...state,
-        logEntries: [...state.logEntries, ...flushed.entries, entry],
-        pending,
-        runningPaths,
-        totalTasks: state.totalTasks + 1,
-      };
+      if (!state.runningPaths.includes(key)) state.runningPaths.push(key);
+      state.totalTasks += 1;
+      return bump(state);
     }
 
     case 'task:end': {
       const key = keyOf(event.path);
-      const flushed = flushPending(state.pending, key);
-      const p = flushed.pending.get(key);
+      flushPendingInto(state, key);
+      const p = state.pending.get(key);
       const startedAt = p?.startedAt ?? Date.now();
       const depth = p?.depth ?? depthOf(event.path);
       const name = p?.name ?? nameOf(event.path);
@@ -197,197 +286,176 @@ export function reducer(state: State, event: EngineAction): State {
         const tools = out.toolsUsed;
         if (Array.isArray(tools)) toolsCount = tools.length;
       }
-      const entry: LogEntry = {
+      state.logEntries.push({
         kind: 'task-end',
         depth,
         name,
         durationMs: Math.max(0, Date.now() - startedAt),
         costUsd,
         toolsCount,
-      };
-      const pending = new Map(flushed.pending);
-      pending.delete(key);
-      return {
-        ...state,
-        logEntries: [...state.logEntries, ...flushed.entries, entry],
-        pending,
-        runningPaths: state.runningPaths.filter((k) => k !== key),
-        costUsd: state.costUsd + (costUsd ?? 0),
-      };
+      });
+      state.pending.delete(key);
+      const idx = state.runningPaths.indexOf(key);
+      if (idx >= 0) state.runningPaths.splice(idx, 1);
+      state.costUsd += costUsd ?? 0;
+      return bump(state);
     }
 
     case 'task:error': {
       const key = keyOf(event.path);
-      const flushed = flushPending(state.pending, key);
-      const p = flushed.pending.get(key);
+      flushPendingInto(state, key);
+      const p = state.pending.get(key);
       const depth = p?.depth ?? depthOf(event.path);
       const name = p?.name ?? nameOf(event.path);
-      const entry: LogEntry = { kind: 'task-error', depth, name, message: event.message };
-      const pending = new Map(flushed.pending);
-      pending.delete(key);
-      return {
-        ...state,
-        logEntries: [...state.logEntries, ...flushed.entries, entry],
-        pending,
-        runningPaths: state.runningPaths.filter((k) => k !== key),
-      };
+      state.logEntries.push({ kind: 'task-error', depth, name, message: event.message });
+      state.pending.delete(key);
+      const idx = state.runningPaths.indexOf(key);
+      if (idx >= 0) state.runningPaths.splice(idx, 1);
+      return bump(state);
     }
 
     case 'task:skip': {
       // Skipped tasks never emit task:start, so there's no pending row to
       // flush or running path to remove. Just append a single "skipped" entry.
-      const depth = depthOf(event.path);
-      const name = nameOf(event.path);
-      const entry: LogEntry = { kind: 'task-skip', depth, name };
-      return {
-        ...state,
-        logEntries: [...state.logEntries, entry],
-      };
+      state.logEntries.push({
+        kind: 'task-skip',
+        depth: depthOf(event.path),
+        name: nameOf(event.path),
+      });
+      return bump(state);
     }
 
     case 'iteration:start': {
       const key = keyOf(event.path);
-      const flushed = flushPending(state.pending, key);
-      const depth = flushed.pending.get(key)?.depth ?? depthOf(event.path);
-      const entry: LogEntry = {
+      flushPendingInto(state, key);
+      const depth = state.pending.get(key)?.depth ?? depthOf(event.path);
+      state.logEntries.push({
         kind: 'iteration',
         depth,
         displayIndex: event.index + 1,
         total: event.total,
-      };
-      return {
-        ...state,
-        logEntries: [...state.logEntries, ...flushed.entries, entry],
-        pending: flushed.pending,
-      };
+      });
+      return bump(state);
     }
 
     case 'claude:text': {
       const key = keyOf(event.path);
-      const pending = new Map(state.pending);
-      const p = pending.get(key);
+      const p = state.pending.get(key);
       if (!p) return state;
-      let logEntries = state.logEntries;
       if (p.pendingThinking != null) {
-        logEntries = [...logEntries, { kind: 'thinking', depth: p.depth, text: p.pendingThinking }];
+        state.logEntries.push({ kind: 'thinking', depth: p.depth, text: p.pendingThinking });
+        p.pendingThinking = null;
       }
-      pending.set(key, {
-        ...p,
-        pendingText: (p.pendingText ?? '') + event.text,
-        pendingThinking: null,
-      });
-      return { ...state, logEntries, pending };
+      p.pendingText = appendBounded(p.pendingText, event.text, MAX_TEXT_BUFFER_BYTES);
+      return bump(state);
     }
 
     case 'claude:thinking': {
       const key = keyOf(event.path);
-      const pending = new Map(state.pending);
-      const p = pending.get(key);
+      const p = state.pending.get(key);
       if (!p) return state;
-      let logEntries = state.logEntries;
       if (p.pendingText != null) {
-        logEntries = [...logEntries, { kind: 'text', depth: p.depth, text: p.pendingText }];
+        state.logEntries.push({ kind: 'text', depth: p.depth, text: p.pendingText });
+        p.pendingText = null;
       }
-      pending.set(key, {
-        ...p,
-        pendingThinking: (p.pendingThinking ?? '') + event.text,
-        pendingText: null,
-      });
-      return { ...state, logEntries, pending };
+      p.pendingThinking = appendBounded(p.pendingThinking, event.text, MAX_TEXT_BUFFER_BYTES);
+      return bump(state);
     }
 
     case 'shell:stdout': {
       const key = keyOf(event.path);
-      const pending = new Map(state.pending);
-      const p = pending.get(key);
+      const p = state.pending.get(key);
       if (!p) return state;
-      let logEntries = state.logEntries;
       if (p.pendingShellStderr != null) {
-        logEntries = [
-          ...logEntries,
-          { kind: 'shell-stderr', depth: p.depth, text: p.pendingShellStderr },
-        ];
+        state.logEntries.push({
+          kind: 'shell-stderr',
+          depth: p.depth,
+          text: p.pendingShellStderr,
+        });
+        p.pendingShellStderr = null;
       }
-      pending.set(key, {
-        ...p,
-        pendingShellStdout: (p.pendingShellStdout ?? '') + event.chunk,
-        pendingShellStderr: null,
-      });
-      return { ...state, logEntries, pending };
+      p.pendingShellStdout = appendBounded(
+        p.pendingShellStdout,
+        event.chunk,
+        MAX_TEXT_BUFFER_BYTES,
+      );
+      return bump(state);
     }
 
     case 'shell:stderr': {
       const key = keyOf(event.path);
-      const pending = new Map(state.pending);
-      const p = pending.get(key);
+      const p = state.pending.get(key);
       if (!p) return state;
-      let logEntries = state.logEntries;
       if (p.pendingShellStdout != null) {
-        logEntries = [
-          ...logEntries,
-          { kind: 'shell-stdout', depth: p.depth, text: p.pendingShellStdout },
-        ];
+        state.logEntries.push({
+          kind: 'shell-stdout',
+          depth: p.depth,
+          text: p.pendingShellStdout,
+        });
+        p.pendingShellStdout = null;
       }
-      pending.set(key, {
-        ...p,
-        pendingShellStderr: (p.pendingShellStderr ?? '') + event.chunk,
-        pendingShellStdout: null,
-      });
-      return { ...state, logEntries, pending };
+      p.pendingShellStderr = appendBounded(
+        p.pendingShellStderr,
+        event.chunk,
+        MAX_TEXT_BUFFER_BYTES,
+      );
+      return bump(state);
     }
 
     case 'claude:tool_use': {
       const key = keyOf(event.path);
-      const flushed = flushPending(state.pending, key);
-      const p = flushed.pending.get(key);
+      flushPendingInto(state, key);
+      const p = state.pending.get(key);
       const depth = p?.depth ?? depthOf(event.path);
-      const entry: LogEntry = {
+      state.logEntries.push({
         kind: 'tool-use',
         depth,
         toolUseId: event.toolUseId,
         name: event.name,
         input: event.input,
-      };
-      const pending = new Map(flushed.pending);
-      if (p) {
-        const toolNamesById = new Map(p.toolNamesById);
-        toolNamesById.set(event.toolUseId, event.name);
-        pending.set(key, { ...p, toolNamesById });
-      }
-      return {
-        ...state,
-        logEntries: [...state.logEntries, ...flushed.entries, entry],
-        pending,
-      };
+      });
+      if (p) p.toolNamesById.set(event.toolUseId, event.name);
+      return bump(state);
     }
 
     case 'claude:tool_result': {
       const key = keyOf(event.path);
-      const flushed = flushPending(state.pending, key);
-      const p = flushed.pending.get(key);
+      flushPendingInto(state, key);
+      const p = state.pending.get(key);
       const depth = p?.depth ?? depthOf(event.path);
       const name = p?.toolNamesById.get(event.toolUseId) ?? '?';
-      const entry: LogEntry = {
+      state.logEntries.push({
         kind: 'tool-result',
         depth,
         toolUseId: event.toolUseId,
         name,
-        content: event.content,
+        content: truncateString(event.content, MAX_TOOL_RESULT_BYTES),
         isError: event.isError,
-      };
-      return {
-        ...state,
-        logEntries: [...state.logEntries, ...flushed.entries, entry],
-        pending: flushed.pending,
-      };
+      });
+      return bump(state);
     }
   }
 }
 
+/**
+ * Hook wrapper around the mutating `reducer`. Held in `useRef` so React's
+ * StrictMode double-invocation of `useReducer` reducers can't corrupt the
+ * mutable state. Re-render is forced via a separate counter when `revision`
+ * advances.
+ */
 export function useEngineState(): {
   state: State;
   dispatch: (event: EngineAction) => void;
 } {
-  const [state, dispatch] = useReducer(reducer, undefined, () => initialState());
-  return { state, dispatch };
+  const stateRef = useRef<State | null>(null);
+  if (stateRef.current === null) stateRef.current = initialState();
+  const [, force] = useReducer((x: number) => x + 1, 0);
+  const dispatch = useCallback((event: EngineAction) => {
+    const s = stateRef.current;
+    if (s === null) return;
+    const before = s.revision;
+    reducer(s, event);
+    if (s.revision !== before) force();
+  }, []);
+  return { state: stateRef.current, dispatch };
 }
