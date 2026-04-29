@@ -29,11 +29,13 @@ export function PinnedFooter({ state }: { state: State }): ReactElement {
   const frame = Math.floor(now / TICK_MS) % SPINNER_FRAMES.length;
   const inFlight = state.runningPaths.length;
   const elapsed = formatElapsed(now - state.startedAt);
-  // `runningPaths` only changes on task:start / task:end, so memoize to avoid
-  // re-joining and re-truncating on every 200ms spinner tick.
+  // `runningPaths` is mutated in place by the reducer; the array reference is
+  // stable so we depend on `state.revision` to re-memo on engine events. The
+  // 200ms spinner tick only changes `now` and skips this memo.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision tracks in-place mutations of runningPaths
   const namesLine = useMemo(
     () => (inFlight > 0 ? truncate(state.runningPaths.map(leafLabel).join(' · '), 120) : null),
-    [inFlight, state.runningPaths],
+    [inFlight, state.runningPaths, state.revision],
   );
 
   return (
