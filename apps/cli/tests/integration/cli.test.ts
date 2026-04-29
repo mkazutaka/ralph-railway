@@ -50,6 +50,7 @@ test('--help prints usage with new flags', async () => {
   expect(out).toContain('--list');
   expect(out).toContain('--plain');
   expect(out).toContain('--verbose');
+  expect(out).toContain('validate <name|path>');
 });
 
 test('--list prints available workflow names with source', async () => {
@@ -119,4 +120,38 @@ test('expands <ARGUMENTS> and <N> end-to-end in --plain --verbose', async () => 
   expect(code).toBe(0);
   expect(out).toContain('hello alpha beta');
   expect(out).toContain('"first": "alpha"');
+});
+
+test('validate <name> succeeds for a valid workflow resolved from search dirs', async () => {
+  const { code, out } = await run(['validate', 'minimal']);
+  expect(code).toBe(0);
+  expect(out).toContain('ok:');
+  expect(out).toContain('minimal.yaml');
+});
+
+test('validate <path> succeeds for a valid file path', async () => {
+  const path = resolve('tests/fixtures/cli-minimal.yaml');
+  const { code, out } = await run(['validate', path]);
+  expect(code).toBe(0);
+  expect(out).toContain('ok:');
+  expect(out).toContain(path);
+});
+
+test('validate <path> exits 2 with a diagnostic for a malformed workflow', async () => {
+  const path = resolve('tests/fixtures/error-bad-dsl.yaml');
+  const { code, err } = await run(['validate', path]);
+  expect(code).toBe(2);
+  expect(err).toContain('invalid:');
+});
+
+test('validate without a target exits 2 with a usage hint', async () => {
+  const { code, err } = await run(['validate']);
+  expect(code).toBe(2);
+  expect(err).toContain('validate requires');
+});
+
+test('validate with an unknown name exits 2', async () => {
+  const { code, err } = await run(['validate', 'no-such-workflow']);
+  expect(code).toBe(2);
+  expect(err).toContain('not found');
 });

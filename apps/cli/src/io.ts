@@ -6,6 +6,18 @@ import { expandArgs } from './args';
 export type Workflow = Specification.Workflow;
 
 /**
+ * Read, schema-validate, and hydrate a workflow YAML — without applying any
+ * runtime argument expansion. Use this when you only need to verify that a
+ * file conforms to the SLW v1.0.3 schema (e.g. the `validate` subcommand).
+ */
+export function parseWorkflow(path: string): Workflow {
+  const text = readFileSync(path, 'utf-8');
+  const raw = yamlLoad(text);
+  validate('Workflow', raw);
+  return new Classes.Workflow(raw as unknown as Partial<Workflow>) as unknown as Workflow;
+}
+
+/**
  * Load, schema-validate, and hydrate a workflow YAML, then expand
  * `<ARGUMENTS>` / `<N>` placeholder tokens inside string values using the
  * supplied positional CLI arguments.
@@ -19,10 +31,7 @@ export type Workflow = Specification.Workflow;
  *   inconsistent with `args` (see `expandArgs` for the exact conditions).
  */
 export function loadWorkflow(path: string, args: readonly string[] = []): Workflow {
-  const text = readFileSync(path, 'utf-8');
-  const raw = yamlLoad(text);
-  validate('Workflow', raw);
-  const wf = new Classes.Workflow(raw as unknown as Partial<Workflow>) as unknown as Workflow;
+  const wf = parseWorkflow(path);
   expandArgs(wf, args);
   return wf;
 }

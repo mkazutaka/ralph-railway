@@ -43,6 +43,13 @@ _way() {
   if [[ $pos -eq 0 ]]; then
     local names
     names=$(way --list 2>/dev/null | awk '{print $1}')
+    COMPREPLY=( $(compgen -W "$names validate completions" -- "$cur") )
+    return
+  fi
+
+  if [[ $pos -eq 1 && "\${words[1]}" == validate ]]; then
+    local names
+    names=$(way --list 2>/dev/null | awk '{print $1}')
     COMPREPLY=( $(compgen -W "$names" -- "$cur") )
   fi
 }

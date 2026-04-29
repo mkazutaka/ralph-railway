@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowValidationError } from '../../src/engine/errors';
-import { loadWorkflow } from '../../src/io';
+import { loadWorkflow, parseWorkflow } from '../../src/io';
 
 const tmpDir = join(tmpdir(), `way-io-${Date.now()}`);
 mkdirSync(tmpDir, { recursive: true });
@@ -110,5 +110,29 @@ do:
 `,
     );
     expect(() => loadWorkflow(path, ['only'])).toThrow(WorkflowValidationError);
+  });
+});
+
+describe('parseWorkflow', () => {
+  test('returns a hydrated workflow without expanding args', () => {
+    const path = write(
+      'parse-args.yaml',
+      `
+document: { dsl: "1.0.3", namespace: t, name: w, version: "0.1.0" }
+do:
+  - greet:
+      call: claude
+      with:
+        prompt: "Explain <ARGUMENTS>"
+`,
+    );
+    const wf = parseWorkflow(path);
+    expect(wf.document.dsl).toBe('1.0.3');
+    // Tokens are preserved — parse does not invoke arg expansion.
+    expect((wf.do as any)[0].greet.with.prompt).toBe('Explain <ARGUMENTS>');
+  });
+
+  test('rejects an invalid workflow', () => {
+    expect(() => parseWorkflow('tests/fixtures/error-bad-dsl.yaml')).toThrow();
   });
 });
