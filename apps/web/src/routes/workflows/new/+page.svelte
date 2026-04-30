@@ -1,57 +1,34 @@
+<!--
+  New workflow page.
+
+  Carrier UI for the create-workflow scenario
+  (`apps/web/docs/scenarios/workflow-management/create-workflow.md`): the
+  user picks a `WorkflowId` (basename + .yaml/.yml) and a `YamlSource`,
+  the form posts to `/api/workflows`, and on success the editor page
+  opens at `/workflows/[id]`.
+
+  This route component is intentionally a thin layout shell — all form
+  state, the create POST, error surfacing and post-success navigation
+  live in `CreateWorkflowForm.svelte`. Mirrors the rule in
+  `.claude/rules/web-frontend.md`: ページコンポーネントにミューテーション
+  ロジックを詰め込まない。
+
+  Visual language continues the editor / index pages: the FlowCraft dark
+  palette via CSS tokens (see `app.css`), the `--color-bg-app` background
+  for the page surface, and the same layout container width
+  (`max-w-3xl`) used on `routes/+page.svelte` so the create → list
+  transition keeps the same horizontal rhythm.
+-->
 <script lang="ts">
-  import { goto } from '$app/navigation';
-
-  let id = $state('untitled.yaml');
-  let yaml = $state(`document:
-  dsl: '1.0.0'
-  namespace: default
-  name: untitled
-  version: '0.1.0'
-do:
-  - first:
-      set:
-        message: 'hello'
-`);
-  let saving = $state(false);
-  let errMsg: string | null = $state(null);
-
-  async function save() {
-    saving = true;
-    errMsg = null;
-    const res = await fetch('/api/workflows', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, yaml }),
-    });
-    saving = false;
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      errMsg = body.error ?? `HTTP ${res.status}`;
-      return;
-    }
-    await goto(`/workflows/${encodeURIComponent(id)}`);
-  }
+  import CreateWorkflowForm from '$features/workflow-editor/components/CreateWorkflowForm.svelte';
+  import { createWorkflowCopy as copy } from '$features/workflow-editor/components/createWorkflowCopy';
 </script>
 
-<main class="mx-auto max-w-3xl space-y-4 p-8">
-  <h1 class="text-2xl font-semibold">New workflow</h1>
-  <label class="block text-sm">
-    <span class="block">File name</span>
-    <input class="mt-1 w-full rounded border px-2 py-1" bind:value={id} />
-  </label>
-  <label class="block text-sm">
-    <span class="block">YAML</span>
-    <textarea
-      class="mt-1 h-72 w-full rounded border p-2 font-mono text-xs"
-      bind:value={yaml}
-    ></textarea>
-  </label>
-  {#if errMsg}<p class="text-sm text-red-600">{errMsg}</p>{/if}
-  <button
-    class="rounded bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
-    disabled={saving}
-    onclick={save}
-  >
-    {saving ? 'Saving…' : 'Create'}
-  </button>
+<main class="mx-auto min-h-screen max-w-3xl space-y-6 bg-(--color-bg-app) p-6 sm:p-8">
+  <header class="space-y-1">
+    <h1 class="text-2xl font-semibold text-(--color-text-primary)">{copy.heading}</h1>
+    <p class="text-sm text-(--color-text-secondary)">{copy.subheading}</p>
+  </header>
+
+  <CreateWorkflowForm />
 </main>

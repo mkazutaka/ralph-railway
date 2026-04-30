@@ -1,0 +1,18 @@
+document:
+  dsl: 1.0.0
+  namespace: default
+  name: untitled
+  version: 0.1.0
+do:
+  - first:
+      set:
+        message: hello
+  - sample_step:
+      run:
+        shell:
+          command: echo hello
+  - guarded_step:
+      if: ${ true }
+      run:
+        shell:
+          command: echo guarded
