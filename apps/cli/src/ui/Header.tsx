@@ -1,26 +1,31 @@
-// src/ui/Header.tsx
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
+import type { Workflow } from '../io';
 import { theme } from './theme';
 
 export interface HeaderProps {
-  namespace: string | null;
-  name: string;
-  version: string | null;
-  title: string | null;
-  summary: string | null;
+  workflow: Workflow;
 }
 
-export function Header({ namespace, name, version, title, summary }: HeaderProps): ReactElement {
+export function Header({ workflow }: HeaderProps): ReactElement {
+  const { namespace, name, version, title, summary } = workflow.document;
+
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1}>
+    <Box
+      alignSelf="flex-start"
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.border}
+      paddingX={1}
+    >
       <Text bold color={theme.accent}>
-        {namespace ? `${namespace}/` : ''}
-        {name}
-        {version ? ` v${version}` : ''}
+        {namespace}/{name}
       </Text>
-      {title ? <Text>{title}</Text> : null}
-      {summary ? <Text color={theme.dim}>{summary}</Text> : null}
+      <Text bold color={theme.accent}>
+        v{version}
+      </Text>
+      {title && title.length > 0 ? <Text>{title}</Text> : null}
+      {summary && summary.length > 0 ? <Text color={theme.dim}>{summary}</Text> : null}
     </Box>
   );
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, statSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
-import { render } from 'ink';
+import { render, renderToString } from 'ink';
 import { isSupportedShell, renderCompletion, type Shell } from './completions';
 import {
   RalphError,
@@ -13,6 +13,7 @@ import { EngineBus } from './engine/events';
 import { Engine } from './engine/executor';
 import { loadWorkflow, parseWorkflow, type Workflow } from './io';
 import { App } from './ui/App';
+import { Header } from './ui/Header';
 import { listWorkflows, resolveWorkflow, workflowSearchDirs } from './workflow-paths';
 
 const VERSION = '0.0.1';
@@ -200,20 +201,22 @@ async function runInk(
   let resultOutputs: Record<string, unknown> | null = null;
   let resultMessage: string | null = null;
 
+  process.stdout.write(
+    `${renderToString(<Header workflow={wf} />, { columns: process.stdout.columns })}\n`,
+  );
+
   // Mount the TUI first; App subscribes to the bus via useEffect on mount so
   // engine events stream into the reducer as the workflow runs below.
-  const { unmount, waitUntilExit, rerender } = render(
-    <App bus={bus} wf={wf} finishedAt={finishedAt} />,
-  );
+  const { unmount, waitUntilExit, rerender } = render(<App bus={bus} finishedAt={finishedAt} />);
 
   const engine = new Engine(bus);
   try {
     resultOutputs = await engine.runWorkflow(wf, { workDir: cwd });
     finishedAt = Date.now();
-    rerender(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
+    rerender(<App bus={bus} finishedAt={finishedAt} />);
   } catch (err) {
     finishedAt = Date.now();
-    rerender(<App bus={bus} wf={wf} finishedAt={finishedAt} />);
+    rerender(<App bus={bus} finishedAt={finishedAt} />);
     const mapped = mapErrorToExit(err);
     resultCode = mapped.code;
     resultMessage = mapped.message;

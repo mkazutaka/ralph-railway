@@ -1,8 +1,6 @@
 // src/ui/renderItems.ts
 import type { StructuredPatchHunk } from 'diff';
-import type { Workflow } from '../io';
 import { computeHunks, extractEdits, isEditToolName } from './editDiff';
-import type { HeaderProps } from './Header';
 import type { ToolGroup } from './rows/ToolGroupRow';
 import type { LogEntry } from './useEngineState';
 
@@ -40,23 +38,6 @@ export type RenderItem =
       editHunks?: StructuredPatchHunk[];
     } & RenderCommon)
   | ({ kind: 'group'; group: ToolGroup } & RenderCommon);
-
-export type StaticItem = { id: 'header'; kind: 'header'; header: HeaderProps } | RenderItem;
-
-export function extractHeader(wf: Workflow): HeaderProps {
-  const doc = (wf as unknown as { document?: Record<string, unknown> }).document ?? {};
-  const str = (k: string): string | null => {
-    const v = doc[k];
-    return typeof v === 'string' && v.length > 0 ? v : null;
-  };
-  return {
-    namespace: str('namespace'),
-    name: str('name') ?? 'workflow',
-    version: str('version'),
-    title: str('title'),
-    summary: str('summary'),
-  };
-}
 
 // Collapse runs of ≥2 consecutive same-name tool-use entries (plus their
 // matching tool-results that stream right after) into a single grouped render
@@ -162,10 +143,10 @@ export function renderItemBlocksCommit(item: RenderItem): boolean {
  * growing). Everything before is settled history (safe to freeze into
  * <Static>), everything from there on stays in the live region.
  */
-export function splitAtLiveBoundary(
-  entries: LogEntry[],
-  header: HeaderProps,
-): { staticItems: StaticItem[]; liveItems: RenderItem[] } {
+export function splitAtLiveBoundary(entries: LogEntry[]): {
+  staticItems: RenderItem[];
+  liveItems: RenderItem[];
+} {
   const resolvedIds = new Set<string>();
   const erroredIds = new Set<string>();
   // tool-result ids for Edit-family tool-uses — their result text is replaced
@@ -184,7 +165,7 @@ export function splitAtLiveBoundary(
   const boundary = items.findIndex(renderItemBlocksCommit);
   const cut = boundary === -1 ? items.length : boundary;
 
-  const staticItems: StaticItem[] = [{ id: 'header', kind: 'header', header }];
+  const staticItems: RenderItem[] = [];
   for (let i = 0; i < cut; i++) {
     const item = items[i];
     if (item) staticItems.push(item);
