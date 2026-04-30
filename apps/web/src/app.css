@@ -1,10 +1,230 @@
 @import 'tailwindcss';
 
+/*
+ * Inter is the canonical UI font defined in `apps/web/design/app.pen`
+ * (Hkw62 "Add Node FAB", h3L8J "Add Node Popup" — both specify
+ * `fontFamily: "Inter"` for headings, labels, and tiles). Loading the
+ * variable font from Google's CDN keeps the bundle lean while still
+ * giving the FlowCraft UI the typographic rhythm the design assumes
+ * (review note M-1). `font-display: swap` is intentional — we'd rather
+ * show the fallback (`-apple-system, Segoe UI, …`) for one frame than
+ * block first paint on the network.
+ *
+ * `&display=swap` query string mirrors the recommended Google Fonts
+ * URL; `latin` + `latin-ext` covers the strings shipped in the editor.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/*
+ * shadcn-svelte semantic-token bridge. The shadcn registry components
+ * reference Tailwind utilities like `bg-popover`, `bg-primary`, `border`
+ * which expand to `var(--popover)` / `var(--primary)` / `var(--border)`.
+ * We map those names to the FlowCraft palette so the unmodified shadcn
+ * primitives render correctly inside the dark editor while wrapper
+ * components in `$lib/components/` (NOT inside `ui/`) can override
+ * specific surfaces with explicit FlowCraft tokens via `class={...}`.
+ *
+ * The FlowCraft tokens themselves remain the source of truth — see the
+ * `:root` block below.
+ */
+/*
+ * Override Tailwind's default `font-sans` stack so the FlowCraft palette
+ * uses Inter as the primary UI face (review note M-1). The fallback chain
+ * mirrors Tailwind v4's default so platforms that block the webfont
+ * (offline, restrictive networks) still render with the expected
+ * system-ui look. `--color-shadow-elevated` and `--color-shadow-elevated-rgb`
+ * are FlowCraft-internal panel-shadow tokens — the previous hard-coded
+ * `rgba(0,0,0,0.5)` on the popup did not respect light theme and made the
+ * FAB indistinguishable from a black border on a white surface (review
+ * note m-2).
+ */
+@theme inline {
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Apple Color Emoji', 'Segoe UI Emoji';
+  --color-popover: var(--color-bg-elevated);
+  --color-popover-foreground: var(--color-text-primary);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-bg-hover);
+  --color-secondary-foreground: var(--color-text-primary);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: #ffffff;
+  --color-muted: var(--color-bg-hover);
+  --color-muted-foreground: var(--color-text-tertiary);
+  --color-accent-foreground: #ffffff;
+  --color-background: var(--color-bg-app);
+  --color-foreground: var(--color-text-primary);
+  --color-input: var(--color-border-default);
+  --color-ring: var(--color-accent);
+  --color-border: var(--color-border-default);
+  --color-card: var(--color-bg-surface);
+  --color-card-foreground: var(--color-text-primary);
+}
+
+/*
+ * Design tokens. These mirror the variables defined in
+ * `apps/web/design/app.pen` (FlowCraft theme). They are exposed as CSS
+ * custom properties so components can reference them via
+ * `bg-(--color-accent)` etc. without hard-coding hex values.
+ *
+ * Two themes are defined:
+ *   - default (`:root`)        : dark theme (FlowCraft - Workflow Builder)
+ *   - `[data-theme="light"]`   : light theme (FlowCraft - Light Theme)
+ *
+ * NOTE: when adding a new token, define it in BOTH themes so swapping the
+ * data-theme attribute does not leave UI components unstyled.
+ */
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
+
+  /* surfaces */
+  --color-bg-app: #0b0b10;
+  --color-bg-canvas: #111118;
+  --color-bg-surface: #161620;
+  --color-bg-elevated: #1c1c28;
+  --color-bg-hover: #232333;
+  /*
+   * `--color-bg-active` mirrors the design's `$bg-active` swatch
+   * (`apps/web/design/app.pen`, node `gskMk → hnsox` "Select Tool"). Slightly
+   * heavier than `--color-bg-hover` so the toolbar's pressed state is
+   * unambiguously distinguishable from the inactive hover state (review note
+   * P2-1: the toolbar previously rendered both states with the same
+   * `--color-bg-hover` token, making the active tool indistinguishable when
+   * the user hovered the inactive tool).
+   */
+  --color-bg-active: #2c2c40;
+
+  /* borders */
+  --color-border-subtle: #2a2a38;
+  --color-border-default: #383848;
+  --color-border-strong: #4d4d63;
+
+  /* text */
+  --color-text-primary: #e7e7f0;
+  --color-text-secondary: #a8a8b8;
+  --color-text-tertiary: #6e6e80;
+
+  /* accents (FlowCraft purple) */
+  --color-accent: #6e56cf;
+  --color-accent-hover: #7c66d9;
+  --color-accent-muted: #6e56cf26;
+  /*
+   * Mirrors `apps/web/design/app.pen` Hkw62 "Add Node FAB" effect:
+   * `#6E56CF40` (25% opacity, blur 12, offset y4). Previously `#6e56cf66`
+   * (40% opacity) which was visibly heavier than the design intent on dark
+   * surfaces (review note P2-1).
+   */
+  --color-accent-shadow: #6e56cf40;
+
+  /* node category tints */
+  --color-node-ai: #38bdf8;
+  --color-node-logic: #a78bfa;
+  --color-node-action: #fbbf24;
+  --color-node-trigger: #34d399;
+  /*
+   * `--color-node-output` mirrors the `$node-output` token used by the
+   * design's minimap (`apps/web/design/app.pen`, `EbnDF/BWzPi/VvXiW` and
+   * `DMmQr`) and the `do (block)` showcase card. Without this token the
+   * `do` kind and any unknown `kind` previously fell back to
+   * `--color-text-tertiary` which read as "disabled / secondary" rather
+   * than as an output category. Slate-300 keeps the swatch neutral but
+   * distinguishable from the four other category tints so users can
+   * scan the minimap by colour without confusing it with logic /
+   * action / ai / trigger.
+   */
+  --color-node-output: #94a3b8;
+
+  /* status */
+  /*
+   * `--color-success` was added (review note m2 on the recent-runs panel):
+   * the run-list dot for `succeeded` previously borrowed
+   * `--color-node-trigger`, which coupled status semantics to a node-category
+   * tint. A future re-tune of `node-trigger` would have silently shifted run
+   * dot colours. The hex matches the design's `$success` swatch (emerald
+   * 500) used in `apps/web/design/app.pen` Left Sidebar run rows
+   * (`jOimC`/`rOtfa`/...).
+   */
+  --color-success: #34d399;
+  --color-success-muted: #10b98126;
+  --color-danger: #f87171;
+  --color-danger-muted: #7f1d1d40;
+  --color-danger-border: #7f1d1d;
+
+  /* panel shadows (neutral, NOT the accent purple) — used by the popover
+     surface in `PatternPicker.svelte` so the colour follows theme
+     instead of being a hard-coded `rgba(0,0,0,0.5)` (review note m-2).
+     The dark theme keeps a heavier black drop (the popup floats over a
+     near-black canvas), while the light theme settles on a softer
+     translucent ink. */
+  --color-shadow-elevated: #00000080;
+  /*
+   * `--color-shadow-toolbar` mirrors the design's `gskMk` toolbar effect
+   * (`#00000040`, 25% black) and the bottom Execution Bar `hVaDB.effect`
+   * (`#00000030`). Previously toolbars borrowed `--color-shadow-elevated`
+   * (50% black on dark theme) which read at twice the design's intended
+   * intensity and made the pill look heavier than the elevated popover
+   * above it (review note frontend #3 / #6).
+   */
+  --color-shadow-toolbar: #00000040;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg-app: #f7f7fa;
+  --color-bg-canvas: #ffffff;
+  --color-bg-surface: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-bg-hover: #f1f1f5;
+  /* See dark-theme note. The light-theme active state uses a slightly darker
+     hover swatch so the pressed tool stays distinguishable on white. */
+  --color-bg-active: #e4e4e9;
+
+  --color-border-subtle: #e4e4e9;
+  --color-border-default: #d4d4dc;
+  --color-border-strong: #b4b4bf;
+
+  --color-text-primary: #18181f;
+  --color-text-secondary: #4d4d5e;
+  --color-text-tertiary: #6e6e80;
+
+  --color-accent: #6e56cf;
+  --color-accent-hover: #5e46bf;
+  --color-accent-muted: #6e56cf1a;
+  --color-accent-shadow: #6e56cf33;
+
+  --color-node-ai: #0284c7;
+  --color-node-logic: #7c3aed;
+  --color-node-action: #d97706;
+  --color-node-trigger: #059669;
+  /* See dark-theme note. The light-theme `output` swatch is darker so
+     small (8x4) minimap rectangles retain contrast on the white
+     elevated surface. */
+  --color-node-output: #64748b;
+
+  /* See dark-theme note. The light-theme success hue is darker (emerald
+     600) so the small run dot retains contrast on a white surface. */
+  --color-success: #059669;
+  --color-success-muted: #10b9811a;
+  --color-danger: #dc2626;
+  --color-danger-muted: #fee2e2;
+  --color-danger-border: #fca5a5;
+
+  /* See dark-theme note. On light surfaces, the panel sits on white so
+     a softer translucent shadow keeps the popover lifted without
+     bleeding harsh black on adjacent UI. */
+  --color-shadow-elevated: #18181f29;
+  /* See dark-theme note for `--color-shadow-toolbar`. The light-theme
+     toolbar shadow is softer still — the toolbar floats over a white
+     canvas, so a lighter ink keeps the pill from reading as a heavy
+     border. */
+  --color-shadow-toolbar: #18181f1f;
 }
 
 html,
 body {
   height: 100%;
+  background-color: var(--color-bg-app);
+  color: var(--color-text-primary);
 }
