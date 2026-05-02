@@ -6,8 +6,8 @@ import { LogEntryRow } from './rows/LogEntryRow';
 import { ToolGroupRow } from './rows/ToolGroupRow';
 
 /**
- * Single row view for a `RenderItem`. Used in both the `<Static>` history and
- * the live region so the two share one visual layout.
+ * Single row view for a `RenderItem`. Used for both committed stdout history
+ * and the live region so the two share one visual layout.
  */
 export function RenderItemRow({ item }: { item: RenderItem }): ReactElement {
   return (

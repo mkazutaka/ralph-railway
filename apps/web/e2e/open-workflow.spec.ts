@@ -8,6 +8,7 @@ import {
 } from './helpers/workflowFixtures';
 import { yamlTextarea, expectNoInternalLeak } from './helpers/editor';
 import { workflowListCopy } from '../src/features/workflow-editor/components/workflowListCopy';
+import { leftSidebarCopy } from '../src/lib/components/app-shell/leftSidebarCopy';
 import { editorCopy } from '../src/features/workflow-editor/lib/editorCopy';
 
 // E2E tests for the "Open Workflow" scenario.
@@ -60,13 +61,17 @@ test.afterEach(async () => {
 const HEADING_ID = 'workflow-editor-heading';
 
 /**
- * ワークフロー一覧 (`/`) の特定行 link を accessible name で引く helper。
- * `WorkflowList.svelte` は `${openAction} ${name}` を行 anchor の name に
- * 入れるので exact match で他テストの行と衝突しないようにする。
+ * サイドバーの workflow file tree (`WorkflowFileTree.svelte`) の特定行 link を
+ * accessible name で引く helper。tree row の anchor は
+ * `${leftSidebarCopy.openLabel} ${name}` を name に持つので exact match で
+ * 他テストの行と衝突しないようにする。
+ *
+ * 旧 `WorkflowList`（index 直下の standalone list）は廃止され、index は
+ * 空 canvas 状態になったため、行の引き先はサイドバー tree に統一されている。
  */
 function workflowRow(page: Page, displayName: string) {
   return page.getByRole('link', {
-    name: `${workflowListCopy.openAction} ${displayName}`,
+    name: `${leftSidebarCopy.openLabel} ${displayName}`,
     exact: true,
   });
 }

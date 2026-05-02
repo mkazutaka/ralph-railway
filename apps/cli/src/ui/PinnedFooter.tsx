@@ -18,7 +18,7 @@ function leafLabel(key: string): string {
 }
 
 // Single footer-level tick drives both spinner frame and train phase. Nothing
-// in the Static log above re-renders when `now` updates.
+// already committed to stdout history re-renders when `now` updates.
 export function PinnedFooter({ state }: { state: State }): ReactElement {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

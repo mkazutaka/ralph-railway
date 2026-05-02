@@ -14,6 +14,7 @@ import { Engine } from './engine/executor';
 import { loadWorkflow, parseWorkflow, type Workflow } from './io';
 import { App } from './ui/App';
 import { Header } from './ui/Header';
+import { EngineStore } from './ui/useEngineState';
 import { listWorkflows, resolveWorkflow, workflowSearchDirs } from './workflow-paths';
 
 const VERSION = '0.0.1';
@@ -205,21 +206,34 @@ async function runInk(
     `${renderToString(<Header workflow={wf} />, { columns: process.stdout.columns })}\n`,
   );
 
-  // Mount the TUI first; App subscribes to the bus via useEffect on mount so
-  // engine events stream into the reducer as the workflow runs below.
-  const { unmount, waitUntilExit, rerender } = render(<App bus={bus} finishedAt={finishedAt} />);
+  // The store owns `pending` and the commit pipeline. Bus events feed into
+  // `store.dispatch` synchronously; dispatch reduces the event into `pending`,
+  // runs the App-supplied commit callback (which writes the settled prefix to
+  // scrollback and splices it out), then notifies React to re-render the
+  // remaining live items.
+  const store = new EngineStore();
+  const off = bus.on((event) => store.dispatch(event));
+
+  // Mount the TUI. App wires `store.setCommitFn` from useLayoutEffect on
+  // mount, so the first dispatch after render() flushes any events that
+  // arrived before the engine started.
+  const { unmount, waitUntilExit, rerender } = render(
+    <App store={store} finishedAt={finishedAt} />,
+  );
 
   const engine = new Engine(bus);
   try {
     resultOutputs = await engine.runWorkflow(wf, { workDir: cwd });
     finishedAt = Date.now();
-    rerender(<App bus={bus} finishedAt={finishedAt} />);
+    rerender(<App store={store} finishedAt={finishedAt} />);
   } catch (err) {
     finishedAt = Date.now();
-    rerender(<App bus={bus} finishedAt={finishedAt} />);
+    rerender(<App store={store} finishedAt={finishedAt} />);
     const mapped = mapErrorToExit(err);
     resultCode = mapped.code;
     resultMessage = mapped.message;
+  } finally {
+    off();
   }
 
   // Give Ink a frame to flush the final state, then tear down the overlay so

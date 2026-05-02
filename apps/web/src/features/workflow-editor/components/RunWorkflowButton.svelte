@@ -55,6 +55,15 @@
     fetcher,
     /** Optional className passed through for layout-level overrides. */
     class: className,
+    /**
+     * Compact (Top Bar) mode. When true, the inline success / error status
+     * caption is positioned absolutely below the button so it cannot push
+     * sibling controls and break the design's 56px Top Bar row invariant
+     * (`Ht9Do` height: 56). Pages that mount the button in their own
+     * toolbars (where vertical space is not constrained) leave this off
+     * and get the original inline layout (review-design.md M-1).
+     */
+    compact = false,
   }: {
     workflowId: string;
     /**
@@ -66,6 +75,7 @@
     onStarted?: (runId: string) => void;
     fetcher?: typeof fetch;
     class?: string;
+    compact?: boolean;
   } = $props();
 
   type Status =
@@ -119,8 +129,20 @@
   hug the trigger without consuming vertical space. The page's editor header
   reserves a small flex row for action controls, and this wrapper slots into
   it without disrupting the existing Save button / message layout.
+
+  In `compact` mode (Top Bar) we float the caption below the button via
+  `relative` + `absolute` so the design's 56px row invariant is preserved
+  (review-design.md M-1). The wrapper also gets `shrink-0` so it cannot push
+  the avatar / icon-buttons off the trailing edge of the Top Bar at narrow
+  viewports.
 -->
-<div class={cn('flex items-center gap-3', className)}>
+<div
+  class={cn(
+    'flex items-center gap-3',
+    compact && 'relative shrink-0 gap-0',
+    className,
+  )}
+>
   <Button
     type="button"
     variant="default"
@@ -134,7 +156,27 @@
       // 14px horizontal padding, 6px gap between icon and label, white text.
       // 44px tap target on touch (`h-11`) collapses to 32px on >=sm where
       // pointer input dominates.
-      'h-11 gap-1.5 rounded-md bg-(--color-accent) px-3.5 text-[13px] font-semibold text-white shadow-[0_4px_12px_var(--color-accent-shadow)] hover:bg-(--color-accent-hover) focus-visible:ring-(--color-accent) sm:h-8',
+      //
+      // `focus-visible:ring-offset-2` lifts the keyboard-focus ring off
+      // the button so it stays visible against the accent fill (the ring
+      // colour is the same accent hue, which previously bled into the
+      // button surface on focus — review note L-8). In `compact` mode
+      // the offset follows `--color-bg-topbar` so the ring sits flush
+      // against the Top Bar surface in both themes (`#161620` dark /
+      // `#FAFAFA` light — review-design-topbar-frontend.md M-1). Outside
+      // the Top Bar the original `--color-bg-surface` keeps the FAB's
+      // ring offset against the canvas card surface.
+      // Drop shadow is intentionally suppressed in `compact` (Top Bar)
+      // mode: design `B70DU6` does not define an `effect` on the Top Bar
+      // Run pill, and a soft accent shadow there visually lifts Run above
+      // the neighbouring Save pill (same accent fill, no shadow), breaking
+      // the Top Bar 56px row's flat hierarchy (review-design-topbar
+      // -frontend.md M-1). Outside the Top Bar (e.g. canvas FAB context)
+      // the original soft accent shadow is preserved.
+      'h-11 gap-1.5 rounded-md bg-(--color-accent) px-3.5 text-[13px] font-semibold text-white hover:bg-(--color-accent-hover) focus-visible:ring-(--color-accent) focus-visible:ring-offset-2 sm:h-8',
+      compact
+        ? 'focus-visible:ring-offset-(--color-bg-topbar)'
+        : 'focus-visible:ring-offset-(--color-bg-surface) shadow-[0_4px_12px_var(--color-accent-shadow)]',
     )}
   >
     {#if busy}
@@ -151,8 +193,24 @@
   </Button>
 
   {#if status.kind === 'success'}
+    <!--
+      In `compact` mode the caption floats below the button so it cannot
+      push the Top Bar's avatar off-screen on narrow viewports. The
+      caption stays accessible (visible + `role="status"`) so the
+      run-workflow E2E suite can still observe the run id via
+      `data-testid="run-workflow-success"`.
+    -->
     <span
-      class="rounded bg-(--color-success-muted) px-2 py-0.5 text-xs text-(--color-text-primary)"
+      class={cn(
+        'rounded bg-(--color-success-muted) px-2 py-0.5 text-xs whitespace-nowrap text-(--color-text-primary)',
+        // `z-50` on the floating compact caption so it lays above the
+        // mobile drawer overlay (`z-40`) / dialog content (`z-50`). With
+        // the previous `z-30` the toast briefly hid behind the drawer
+        // when the user tapped Run while the navigation drawer was still
+        // closing (review-design-frontend.md m-4).
+        compact &&
+          'absolute top-full right-0 z-50 mt-1 max-w-[min(28ch,calc(100vw-32px))] overflow-hidden text-ellipsis shadow-sm',
+      )}
       role="status"
       aria-live="polite"
       data-testid="run-workflow-success"
@@ -161,7 +219,18 @@
     </span>
   {:else if status.kind === 'error'}
     <span
-      class="rounded border border-(--color-danger-border) bg-(--color-danger-muted) px-2 py-0.5 text-xs text-(--color-danger)"
+      class={cn(
+        'rounded border border-(--color-danger-border) bg-(--color-danger-muted) px-2 py-0.5 text-xs whitespace-nowrap text-(--color-danger)',
+        // See success caption above: `z-50` floats the error toast above
+        // the mobile drawer overlay so it cannot hide behind a closing
+        // drawer (review-design-frontend.md m-4). The `min(...)` cap
+        // keeps the floating caption from overflowing the viewport's
+        // right edge on narrow screens (review note frontend M-1):
+        // `max-w-[32ch]` alone could push the toast under the avatar
+        // and create a click-blocking overlay just below the bar.
+        compact &&
+          'absolute top-full right-0 z-50 mt-1 max-w-[min(32ch,calc(100vw-32px))] overflow-hidden text-ellipsis shadow-sm',
+      )}
       role="alert"
       aria-live="assertive"
       data-testid="run-workflow-error"

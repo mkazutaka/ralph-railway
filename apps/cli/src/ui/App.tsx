@@ -1,37 +1,54 @@
 // src/ui/App.tsx
-import { Static } from 'ink';
-import { type ReactElement, useEffect, useMemo } from 'react';
-import type { EngineBus } from '../engine/events';
+import { Box, renderToString, useStdout } from 'ink';
+import { type ReactElement, useLayoutEffect, useMemo } from 'react';
 import { PinnedFooter } from './PinnedFooter';
 import { RenderItemRow } from './RenderItemRow';
 import { splitAtLiveBoundary } from './renderItems';
 import { SummaryCard } from './SummaryCard';
-import { useEngineState } from './useEngineState';
+import { type EngineStore, useEngineStore } from './useEngineState';
 
 export interface AppProps {
-  bus: EngineBus;
+  store: EngineStore;
   finishedAt: number | null;
 }
 
-export function App({ bus, finishedAt }: AppProps): ReactElement {
-  const { state, dispatch } = useEngineState();
+export function App({ store, finishedAt }: AppProps): ReactElement {
+  const state = useEngineStore(store);
+  const { write } = useStdout();
 
-  useEffect(() => bus.on(dispatch), [bus, dispatch]);
+  // Wire the store's commit callback once Ink's coordinated stdout writer
+  // (`useStdout().write`) is available. The callback runs synchronously inside
+  // every dispatch — *outside* React's render cycle — so renderToString here
+  // does not re-enter the live container's reconciler.
+  useLayoutEffect(() => {
+    store.setCommitFn(() => {
+      const { staticItems, commitEntryCount } = splitAtLiveBoundary(store.state.pending);
+      if (staticItems.length === 0) return;
+      const ansi = renderToString(
+        <Box flexDirection="column">
+          {staticItems.map((item) => (
+            <RenderItemRow key={item.id} item={item} />
+          ))}
+        </Box>,
+        { columns: process.stdout.columns || 80 },
+      );
+      if (ansi.length > 0) write(`${ansi}\n`);
+      store.state.pending.splice(0, commitEntryCount);
+    });
+    return () => {
+      store.setCommitFn(() => {});
+    };
+  }, [store, write]);
 
-  // `state.logEntries` is mutated in place by the reducer — its reference is
-  // stable across dispatches, so we re-memo on `state.revision` instead.
-  // Biome's exhaustive-deps can't see the mutation and flags `state.revision`
-  // as redundant; the suppression below preserves the intentional dependency.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision tracks in-place mutations of logEntries
-  const { staticItems, liveItems } = useMemo(
-    () => splitAtLiveBoundary(state.logEntries),
-    [state.logEntries, state.revision],
-  );
+  // `pending` is mutated in place by the reducer / commit splice; memo on revision.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision tracks in-place mutations of pending
+  const liveItems = useMemo(() => splitAtLiveBoundary(state.pending).liveItems, [
+    state.pending,
+    state.revision,
+  ]);
 
   return (
     <>
-      <Static items={staticItems}>{(item) => <RenderItemRow key={item.id} item={item} />}</Static>
-
       {liveItems.map((item) => (
         <RenderItemRow key={item.id} item={item} />
       ))}

@@ -24,11 +24,27 @@
   import { createWorkflowCopy as copy } from '$features/workflow-editor/components/createWorkflowCopy';
 </script>
 
-<main class="mx-auto min-h-screen max-w-3xl space-y-6 bg-(--color-bg-app) p-6 sm:p-8">
-  <header class="space-y-1">
-    <h1 class="text-2xl font-semibold text-(--color-text-primary)">{copy.heading}</h1>
-    <p class="text-sm text-(--color-text-secondary)">{copy.subheading}</p>
-  </header>
+<!--
+  Page sits inside the layout shell's main column; the column already
+  paints the app background, so the route only owns its content
+  rhythm. `h-full` + `overflow-y-auto` keeps the form scrollable on
+  short viewports without producing a second scrollbar at the shell
+  level.
+
+  Shell-invariance (review note M-2): the design (`k1kIS`/`QZSIP`) has
+  no page-level `<h1>` painted on the canvas — the chrome already names
+  the surface (Top Bar brand link + sidebar `Workflows` label). The
+  visible page heading was therefore a chrome-vs-content collision.
+  We keep the heading semantically (sr-only `<h1>`) so screen readers
+  still announce a single page heading and Playwright selectors that
+  query `getByRole('heading', { name: 'New workflow' })` continue to
+  resolve, then surface the visible form context inside the form
+  surface itself (a small caption above the inputs). The heading text
+  reads identically so locators match either visible or sr-only.
+-->
+<section class="mx-auto h-full w-full max-w-3xl space-y-6 overflow-y-auto p-6 sm:p-8">
+  <h1 class="sr-only">{copy.heading}</h1>
+  <p class="text-sm text-(--color-text-secondary)">{copy.subheading}</p>
 
   <CreateWorkflowForm />
-</main>
+</section>

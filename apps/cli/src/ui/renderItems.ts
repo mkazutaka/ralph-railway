@@ -9,18 +9,20 @@ type ToolResultEntry = Extract<LogEntry, { kind: 'tool-result' }>;
 
 interface RenderCommon {
   id: string;
+  /** Exclusive index in the source LogEntry array consumed by this item. */
+  sourceEnd: number;
   /** Animates the dot while true. Tied to unresolved tool calls only. */
   running: boolean;
   /**
-   * Set when the resolved tool-result for this (single) tool-use or any use
-   * in the group came back with is_error=true. Drives the static dot color
-   * after completion (red vs green), mirroring claude-code's ToolUseLoader.
+   * Set when a tool-result for this (single) tool-use or any use in the group
+   * came back with isError=true. Drives the dot color (red vs green) once the
+   * call completes, mirroring claude-code's ToolUseLoader.
    */
   errored: boolean;
   /**
    * False if the item could still grow (e.g. a Read group with no terminator
-   * after it yet). Open-ended items stay in the live region so they don't
-   * get frozen at a stale size by <Static>.
+   * after it yet). Open-ended items must stay live so they don't get committed
+   * to scrollback at a stale size.
    */
   committable: boolean;
   marginBottom: 0 | 1;
@@ -32,8 +34,8 @@ export type RenderItem =
       entry: LogEntry;
       /**
        * Pre-computed unified-diff hunks for Edit/MultiEdit/Write tool-uses.
-       * Derived from `old_string` / `new_string` in the tool input, so the
-       * diff is available the moment the tool-use arrives (no file read).
+       * Derived from `old_string`/`new_string` in the tool input so the diff
+       * is available the moment the tool-use arrives — no file read required.
        */
       editHunks?: StructuredPatchHunk[];
     } & RenderCommon)
@@ -42,8 +44,8 @@ export type RenderItem =
 // Collapse runs of ≥2 consecutive same-name tool-use entries (plus their
 // matching tool-results that stream right after) into a single grouped render
 // item. Mirrors claude-code's `applyGrouping` — parallel Reads / Greps from the
-// same assistant turn render as one visual cluster so the running indicator
-// is easy to spot instead of flickering across N near-simultaneous rows.
+// same assistant turn render as one visual cluster so the running indicator is
+// easy to spot instead of flickering across N near-simultaneous rows.
 export function buildRenderItems(
   entries: LogEntry[],
   resolvedIds: Set<string>,
@@ -90,7 +92,7 @@ export function buildRenderItems(
         break;
       }
       // "committable" only once a terminator follows — otherwise more
-      // same-name reads could join and <Static> would snapshot the group
+      // same-name reads could join later and a snapshot would freeze the group
       // at a stale size.
       const committable = j < entries.length;
       const running = uses.some((u) => !resolvedIds.has(u.toolUseId));
@@ -98,6 +100,7 @@ export function buildRenderItems(
       items.push({
         kind: 'group',
         id: `group-${entry.toolUseId}`,
+        sourceEnd: j,
         group: { name: entry.name, uses, results },
         running,
         errored,
@@ -111,15 +114,21 @@ export function buildRenderItems(
     const glued = entry.kind === 'tool-use' && next?.kind === 'tool-result';
     const running = entry.kind === 'tool-use' && !resolvedIds.has(entry.toolUseId);
     const errored = entry.kind === 'tool-use' && erroredIds.has(entry.toolUseId);
-    // Pre-compute Edit/MultiEdit/Write diffs so the row renders `⎿ +/-` lines
-    // directly from the tool-use input — no file read required.
     const editHunks =
       entry.kind === 'tool-use' && isEditToolName(entry.name)
         ? computeHunks(extractEdits(entry.name, entry.input))
         : undefined;
+    const sourceEnd =
+      entry.kind === 'tool-use' &&
+      next?.kind === 'tool-result' &&
+      next.toolUseId === entry.toolUseId &&
+      absorbedResultIds.has(next.toolUseId)
+        ? i + 2
+        : i + 1;
     items.push({
       kind: 'entry',
       id: `log-${i}`,
+      sourceEnd,
       entry,
       running,
       errored,
@@ -132,25 +141,28 @@ export function buildRenderItems(
   return items;
 }
 
-export function renderItemBlocksCommit(item: RenderItem): boolean {
-  // A running item can't be committed (it's still animating), and a
-  // not-yet-committable item could still grow — both must stay in live.
+function renderItemBlocksCommit(item: RenderItem): boolean {
+  // A running item can't be committed (still animating), and a not-yet-
+  // committable item could still grow — both must stay in the live region.
   return item.running || !item.committable;
 }
 
 /**
- * Split render items at the first one that must stay live (running or still
- * growing). Everything before is settled history (safe to freeze into
- * <Static>), everything from there on stays in the live region.
+ * Split a LogEntry buffer at the first item that must stay live (running or
+ * still growing). Everything before is settled history (safe to write into
+ * scrollback); everything from there on stays in the live region. The caller
+ * uses `commitEntryCount` to splice the consumed prefix out of its buffer.
  */
 export function splitAtLiveBoundary(entries: LogEntry[]): {
   staticItems: RenderItem[];
   liveItems: RenderItem[];
+  commitEntryCount: number;
 } {
   const resolvedIds = new Set<string>();
   const erroredIds = new Set<string>();
-  // tool-result ids for Edit-family tool-uses — their result text is replaced
-  // by the inline diff so we don't need to render it as a separate row.
+  // tool-result ids whose Edit-family tool-use has its diff inlined — their
+  // separate row is suppressed, but we still need to splice them out of the
+  // source buffer once the prefix is committed.
   const absorbedResultIds = new Set<string>();
   for (const e of entries) {
     if (e.kind === 'tool-result') {
@@ -165,11 +177,21 @@ export function splitAtLiveBoundary(entries: LogEntry[]): {
   const boundary = items.findIndex(renderItemBlocksCommit);
   const cut = boundary === -1 ? items.length : boundary;
 
-  const staticItems: RenderItem[] = [];
-  for (let i = 0; i < cut; i++) {
-    const item = items[i];
-    if (item) staticItems.push(item);
+  const staticItems: RenderItem[] = items.slice(0, cut);
+  const liveItems: RenderItem[] = items.slice(cut);
+
+  let commitEntryCount = staticItems[staticItems.length - 1]?.sourceEnd ?? 0;
+  // Trailing absorbed tool-results that fell after the last static item must
+  // also be spliced; they have no row of their own but still occupy a slot
+  // in the source buffer.
+  while (
+    commitEntryCount < entries.length &&
+    entries[commitEntryCount]?.kind === 'tool-result' &&
+    absorbedResultIds.has(
+      (entries[commitEntryCount] as ToolResultEntry).toolUseId,
+    )
+  ) {
+    commitEntryCount++;
   }
-  const liveItems = items.slice(cut);
-  return { staticItems, liveItems };
+  return { staticItems, liveItems, commitEntryCount };
 }
