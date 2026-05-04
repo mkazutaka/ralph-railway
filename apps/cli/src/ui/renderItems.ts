@@ -195,3 +195,13 @@ export function splitAtLiveBoundary(entries: LogEntry[]): {
   }
   return { staticItems, liveItems, commitEntryCount };
 }
+
+/**
+ * Convenience wrapper that returns the full render-item list (static + live)
+ * for a buffer of entries. Used by tests that don't care about the commit
+ * boundary and just want to assert on the resulting items.
+ */
+export function buildItemsForTask(entries: LogEntry[]): RenderItem[] {
+  const { staticItems, liveItems } = splitAtLiveBoundary(entries);
+  return [...staticItems, ...liveItems];
+}
