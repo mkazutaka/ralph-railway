@@ -5,24 +5,6 @@ document:
   version: "0.2.0"
   title: "Web app のデザインとレイアウトを app.pen に合わせ、デザインレビューが APPROVED になるまでループする"
 
-# 目的:
-#   apps/web/design/app.pen を基準に、web app の画面、コンポーネント、
-#   レイアウト、状態表現、レスポンシブ挙動を実装へ反映する。
-#
-# 対象範囲:
-#   - apps/web/src/routes/ 配下の SvelteKit ページ / layouts
-#   - apps/web/src/lib/ 配下の UI コンポーネント、flow UI、共通スタイル
-#   - apps/web/src/features/ 配下の frontend 表示コンポーネント
-#   - apps/web/src/app.css など web app 側のデザイントークン / CSS
-#   - 上記から呼び出されるナビゲーション、パネル、カード、フォーム、
-#     ボタン、ツールバー、キャンバス、空 / 読込 / エラー / 選択状態
-#
-# 対象外:
-#   - backend / workflow / repository / domain の振る舞い変更
-#   - API 契約の変更
-#   - E2E テストの新規シナリオ実装
-#   - デザイン合わせに不要な大規模リファクタリング
-
 do:
   - plan_design_targets:
       call: claude
@@ -48,13 +30,6 @@ do:
           計画だけを書き、実装はまだ行わないこと。
           末尾に対象の絶対パスまたは識別子一覧を改行区切りで出力してください
           （後続ステップで使う）。
-
-          session 再利用:
-          - input.session_id または input.implement_web_app_design_session_id が渡された場合、
-            実装ループの初回 `implement_web_app_design` はその Claude session を resume します。
-          - input.review_web_app_design_session_id が渡された場合、
-            レビューループの初回 `review_web_app_design` はその Claude session を resume します。
-          - 2 回目以降は各 call が返した sessionId を同じ role の次回 call で再利用します。
 
   - extract_pending:
       run:
@@ -119,8 +94,6 @@ do:
                       4. デザインと異なる仮置き UI、未接続のプレースホルダー、
                          クリック不能な見せかけコントロールが残らないようにする。
                       5. 実装した UI は、表示だけでなく既存の操作導線と整合させる。
-                      6. 可能な範囲で `cd apps/web && bun run check` などの検証を実行し、
-                         実行できない場合は理由を docs/tasks/implement-design.log に残す。
 
                       実装完了後、変更したファイルと検証結果を簡潔に報告してください。
 

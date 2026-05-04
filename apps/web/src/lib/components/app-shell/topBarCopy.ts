@@ -73,4 +73,10 @@ export const topBarCopy = {
    * act on, so we keep it on `role="status"` rather than `role="alert"`.
    */
   saveStatusAria: 'Workflow save status',
+  /**
+   * Accessible name for the Version Tag pill (`pBpzN` in `app.pen`). The
+   * pill text itself is the bare version string (e.g. `v0.1.0`), which a
+   * screen reader would otherwise announce without context.
+   */
+  versionTagAria: 'Workflow version',
 } as const;

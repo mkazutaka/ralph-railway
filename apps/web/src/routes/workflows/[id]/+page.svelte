@@ -46,6 +46,7 @@
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import yaml from 'js-yaml';
   import ChevronDown from 'lucide-svelte/icons/chevron-down';
   import ChevronUp from 'lucide-svelte/icons/chevron-up';
   import EditorTabs from '$lib/components/app-shell/EditorTabs.svelte';
@@ -93,6 +94,37 @@
   let selectedRunId: string | null = $state(null);
 
   /**
+   * Workflow version string the Top Bar's Version Tag pill (`pBpzN` in
+   * `app.pen`) mirrors. Derived from the live YAML buffer (not the
+   * server-rendered `data.opened`) so the pill tracks unsaved edits
+   * immediately. We re-parse with the same `JSON_SCHEMA` policy the
+   * server uses (`features/workflow-editor/lib/yaml.ts`) — this keeps
+   * the two surfaces aligned on what counts as a parseable mid-edit
+   * buffer (a half-typed key transiently fails parse → pill collapses
+   * for one keystroke → reappears once the structure is valid again).
+   *
+   * `null` when the buffer fails to parse or omits `document.version`
+   * entirely; `TopBar.svelte` collapses the pill in that case rather
+   * than rendering an empty chip. Numeric / boolean YAML scalars are
+   * coerced to strings so a tagless `version: 1.0` still surfaces.
+   */
+  const workflowVersion = $derived.by<string | null>(() => {
+    let parsed: unknown;
+    try {
+      parsed = yaml.load(editor.yaml, { schema: yaml.JSON_SCHEMA });
+    } catch {
+      return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const doc = (parsed as { document?: unknown }).document;
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+    const v = (doc as { version?: unknown }).version;
+    if (v === undefined || v === null || v === '') return null;
+    if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') return null;
+    return String(v);
+  });
+
+  /**
    * Save-status summary the Top Bar's pill mirrors. Computed from the
    * editor's transient `message` + `messageTone`. Order of branches
    * matters: `saving` always wins over the post-save `message`,
@@ -130,6 +162,9 @@
     },
     get saveStatus() {
       return topBarSaveStatus;
+    },
+    get version() {
+      return workflowVersion;
     },
     get selectedRunId() {
       return selectedRunId;

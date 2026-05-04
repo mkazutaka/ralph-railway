@@ -77,6 +77,16 @@ export interface TopBarEditorBinding {
    * renders, otherwise the sidebar would lose its click handler).
    */
   setSelectedRunId?(runId: string | null): void;
+  /**
+   * Workflow version string surfaced by the Top Bar Center's Version Tag
+   * pill (`pBpzN` in `app.pen`). Derived from the live YAML buffer's
+   * `document.version`, so user edits to that field reflect immediately
+   * without waiting for a save round-trip. `null` when the buffer fails
+   * to parse or omits the field — the Top Bar collapses the pill in
+   * that case rather than rendering an empty chip. Optional so legacy
+   * mounts that do not yet publish a version stay backward-compatible.
+   */
+  readonly version?: string | null;
 }
 
 const TOP_BAR_EDITOR_KEY = Symbol('top-bar-editor');

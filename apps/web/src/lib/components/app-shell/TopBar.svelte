@@ -265,31 +265,48 @@
 
   <!--
     Center column (`kBLMd` in the design). The design pairs two pills
-    here: a Status Badge (`iCDRl`, mirrored below as the save-status
-    pill) and a Version Tag (`pBpzN`, e.g. `v2.4`). Only the Status
-    Badge is wired today — the workflow repository / API does not yet
-    expose a version field, so surfacing a hard-coded `v2.4` would
-    misrepresent reality (review note frontend M-2). The Version Tag
-    will land alongside the version-tracking scenario; until then the
-    center column houses the save-status pill alone.
+    here: a Status Badge (`iCDRl`, mirrored as the save-status pill
+    below) and a Version Tag (`pBpzN`, e.g. `v0.1.0`). The Center
+    column owns both; `kBLMd.gap = 8` between them maps to `gap-2`.
 
-    Save-status pill: rendered only when an editor is mounted;
-    otherwise the column collapses entirely and the right rail butts
-    up against the breadcrumb (`sVMX2` keeps its trailing edge via
-    `ml-auto` on the wrapper).
+    Both pills are rendered only when an editor is mounted; otherwise
+    the column collapses entirely and the right rail butts up against
+    the breadcrumb (`sVMX2` keeps its trailing edge via `ml-auto` on
+    the wrapper).
 
-    `shrink-0` so the pill never collapses; the Left column is the
-    only segment that flexes (review note M-1).
+    `shrink-0` so neither pill collapses; the Left column is the only
+    segment that flexes (review note M-1).
+
+    Version Tag: derived from the live YAML buffer's `document.version`
+    (see `editor.version` in `+page.svelte`), so user edits to that
+    field reflect immediately. Hidden when the buffer is unparseable
+    or omits the field — we collapse rather than render an empty chip
+    (review note frontend M-2: surfacing a hard-coded value would have
+    misrepresented reality). Non-interactive `<span>`: the tag is a
+    metadata badge, not an affordance, so it does not take focus.
+    Mirrors `pBpzN` (dark) / `X8diZ` (light) via the
+    `--color-bg-version-tag` / `--color-text-version-tag` tokens. The
+    dark variant in `app.pen` binds the swatches as semantic refs
+    (`$bg-hover` / `$text-secondary`), so the tokens alias onto
+    `--color-bg-hover` / `--color-text-secondary` to track theme
+    changes and stay AA on the dark Top Bar. The light variant in
+    `app.pen` overrides those refs with raw hex `#F4F4F5` / `#52525B`,
+    so the tokens carry those exact values in `[data-theme="light"]`
+    (see `app.css` for the asymmetric binding rationale —
+    review-design.md frontend must #1: an earlier draft pinned the
+    dark fill to `#2C2C33` / `#8E8E93`, dropping contrast to ~3.31:1).
+    Inter 11/500, padding [4,8], fully-rounded.
   -->
   {#if editor}
-    <div
-      class="hidden shrink-0 items-center justify-center sm:flex"
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      aria-label={copy.saveStatusAria}
-      data-testid="topbar-save-status"
-    >
+    <div class="hidden shrink-0 items-center gap-2 sm:flex">
+      <div
+        class="flex items-center justify-center"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={copy.saveStatusAria}
+        data-testid="topbar-save-status"
+      >
       {#if editor.saveStatus === 'saving'}
         <!--
           Saving variant uses the design's neutral `$bg-hover` swatch +
@@ -334,6 +351,33 @@
         >
           <TriangleAlert class="size-3" aria-hidden="true" />
           <span>{copy.saveErrorLabel}</span>
+        </span>
+      {/if}
+      </div>
+      {#if editor.version}
+        <!--
+          Version Tag pill (`pBpzN`). Hidden below `md` so the breadcrumb's
+          `max-w-[24ch]` cap on `sm` viewports does not race the Saved
+          pill + Version Tag for horizontal room (review-design.md
+          should #7). The Saved pill stays at `sm:` (it is the primary
+          ambient feedback surface); the Version Tag is metadata that
+          tolerates being hidden on the narrowest desktops.
+
+          A11y: combining the visible text into the `aria-label` means
+          screen readers announce e.g. "Workflow version v0.1.0"
+          instead of letter-spelling the numeric "v0.1.0" (review note
+          should #5). The visible `<span>` uses `aria-hidden` so AT
+          does not double-read the value alongside the label.
+        -->
+        {@const visibleVersion = editor.version.startsWith('v')
+          ? editor.version
+          : `v${editor.version}`}
+        <span
+          class="hidden items-center rounded-full bg-(--color-bg-version-tag) px-2 py-1 text-[11px] leading-none font-medium text-(--color-text-version-tag) md:inline-flex"
+          aria-label={`${copy.versionTagAria} ${visibleVersion}`}
+          data-testid="topbar-version-tag"
+        >
+          <span aria-hidden="true">{visibleVersion}</span>
         </span>
       {/if}
     </div>

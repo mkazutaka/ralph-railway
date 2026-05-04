@@ -124,6 +124,30 @@
   --color-bg-topbar: var(--color-bg-surface);
   --color-border-topbar: var(--color-border-subtle);
 
+  /*
+   * Version Tag pill (`apps/web/design/app.pen` `pBpzN` dark / `X8diZ`
+   * light) sits in the Top Bar Center next to the Saved status badge.
+   * Asymmetric per-theme binding mirrors what Pencil actually does:
+   *   - Dark `pBpzN` binds `fill: $bg-hover` and text `fill:
+   *     $text-secondary` as semantic refs, so the pill is meant to
+   *     ride along with whatever the theme's `$bg-hover` /
+   *     `$text-secondary` resolve to (Dark `#232333` / `#a8a8b8`,
+   *     contrast ~5.5:1, AA pass).
+   *   - Light `X8diZ` overrides those refs with the raw hexes
+   *     `#F4F4F5` / `#52525B` (no token reference). The light Top Bar
+   *     surface (`hcjon`) is `#FAFAFA`, so Pencil dialled the pill
+   *     fill up to a slightly cooler `#F4F4F5` and the text down to
+   *     `#52525B` — aliasing onto `--color-bg-hover` (`#f1f1f5`) /
+   *     `--color-text-secondary` (`#4d4d5e`) would have shifted both
+   *     channels off the design's swatch.
+   * Earlier draft pinned the dark token to `#2C2C33` / `#8E8E93`
+   * (a stale `resolveVariables=true` snapshot of the dark theme), which
+   * dropped contrast to ~3.31:1 (AA fail) and contradicted the pen
+   * semantic binding (review-design.md frontend must #1).
+   */
+  --color-bg-version-tag: var(--color-bg-hover);
+  --color-text-version-tag: var(--color-text-secondary);
+
   /* text */
   --color-text-primary: #e7e7f0;
   --color-text-secondary: #a8a8b8;
@@ -231,6 +255,17 @@
    */
   --color-bg-topbar: #fafafa;
   --color-border-topbar: #efeff1;
+
+  /*
+   * See dark-theme note for the asymmetric binding rationale. Pencil's
+   * light Version Tag (`X8diZ`) breaks from the `$bg-hover` /
+   * `$text-secondary` refs the dark variant uses and pins raw hex
+   * `#F4F4F5` / `#52525B` instead — these are kept verbatim here so
+   * the pill stays exactly as designed on the warm `#FAFAFA` Top Bar
+   * surface. Contrast `#52525B` on `#F4F4F5` ≈ 8.5:1 (AAA).
+   */
+  --color-bg-version-tag: #f4f4f5;
+  --color-text-version-tag: #52525b;
 
   --color-text-primary: #18181f;
   --color-text-secondary: #4d4d5e;
