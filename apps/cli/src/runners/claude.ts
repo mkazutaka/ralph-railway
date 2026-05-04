@@ -28,6 +28,7 @@ function buildOptions(withBlock: Record<string, unknown>, cwd: string): Options 
   const normalized: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(withBlock)) {
     if (k === 'prompt') continue;
+    if (v == null) continue;
     normalized[toCamel(k)] ??= v;
   }
   return {

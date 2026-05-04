@@ -1,0 +1,142 @@
+document:
+  dsl: "1.0.3"
+  namespace: ralph
+  name: implement-design
+  version: "0.2.0"
+  title: "Web app のデザインとレイアウトを app.pen に合わせ、デザインレビューが APPROVED になるまでループする"
+
+do:
+  - plan_design_targets:
+      call: claude
+      with:
+        prompt: |
+          app.pen と実装済み web app の差分を埋めるための改修対象を列挙し、
+          docs/tasks/implement-design-plan.md に書いてください。
+
+          docs/tasks/implement-design-plan.md は次の形式:
+
+          ```
+          # Implement Design Plan
+
+          ## Targets
+          - [ ] <target-or-scenario-path-1>
+          - [ ] <target-or-scenario-path-2>
+          ...
+          ```
+
+          すでに docs/tasks/implement-design-plan.md が存在する場合は上書きせず、
+          未チェック項目を維持してください。
+
+          計画だけを書き、実装はまだ行わないこと。
+          末尾に対象の絶対パスまたは識別子一覧を改行区切りで出力してください
+          （後続ステップで使う）。
+
+  - extract_pending:
+      run:
+        shell:
+          command: |
+            mkdir -p docs/tasks
+            grep -E '^- \[ \]' docs/tasks/implement-design-plan.md | sed -E 's/^- \[ \] //' | tr -d '\r'
+
+  - per_design_target:
+      for:
+        each: target
+        in: ${ .output.extract_pending.stdout | split("\n") | map(select(length > 0)) }
+      do:
+        - reset_design_review:
+            run:
+              shell:
+                command: "mkdir -p docs/tasks .temp && rm -f docs/tasks/review-design.md .temp/web-design-review-result.md 2>/dev/null || true"
+
+        - aggregate_design_review:
+            set:
+              stdout: "<promise>CONTINUE</promise>"
+
+        - design_implementation_loop:
+            for:
+              each: tick
+              in: ${ [range(1; 100)] }
+            while: ${ ((.output.aggregate_design_review.stdout // "") | contains("<promise>COMPLETE</promise>")) | not }
+            do:
+              - check_design_approved:
+                  run:
+                    shell:
+                      command: |
+                        if [ -f docs/tasks/review-design.md ] && grep -q '<promise>APPROVED</promise>' docs/tasks/review-design.md; then
+                          echo "APPROVED"
+                        else
+                          echo "PENDING"
+                        fi
+
+              - implement_web_app_design:
+                  if: ${ (.output.check_design_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    resume: ${ .output.implement_web_app_design.sessionId? // .input.implement_web_app_design_session_id? // .input.session_id? // null }
+                    prompt: |
+                      `web-frontend-implementer` サブエージェントを起動し、
+                      対象 ${ .var.target } に関連する web app のデザインと
+                      レイアウトを apps/web/design/app.pen に合わせて修正させてください。
+
+                      ## 背景
+                      backend / workflow / repository などの振る舞いは維持したまま、
+                      web app の見た目、レイアウト、状態表現、操作面の粗さを
+                      app.pen の意図に合わせます。
+
+                      ## 実装手順
+                      1. apps/web/design/app.pen を pencil MCP (`mcp__pencil__*`) で読み、
+                         画面構成、レイアウト、コンポーネント、状態表現、
+                         レスポンシブ時の見え方を確認する。
+                      2. docs/tasks/review-design.md が存在する場合は読み、
+                         <promise>CHANGES_REQUESTED</promise> の指摘を最優先で直す。
+                      3. 既存の Svelte 5 / shadcn-svelte / Svelte Flow / CSS の
+                         実装パターンに合わせて、app.pen と差がある UI を修正する。
+                      4. デザインと異なる仮置き UI、未接続のプレースホルダー、
+                         クリック不能な見せかけコントロールが残らないようにする。
+                      5. 実装した UI は、表示だけでなく既存の操作導線と整合させる。
+
+                      実装完了後、変更したファイルと検証結果を簡潔に報告してください。
+
+              - review_web_app_design:
+                  if: ${ (.output.check_design_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    resume: ${ .output.review_web_app_design.sessionId? // .input.review_web_app_design_session_id? // null }
+                    prompt: |
+                      `web-frontend-reviewer` と `e2e-reviewer` サブエージェントを起動し、
+                      対象 ${ .var.target } に関連する web app のデザインと
+                      レイアウトを apps/web/design/app.pen と比較レビューさせてください。
+
+                      ## レビュー手順
+                      1. pencil MCP (`mcp__pencil__*`) で apps/web/design/app.pen を確認する。
+                      2. 実装済み UI のコードと、可能ならレンダリング結果を確認する。
+                      3. 結果を docs/tasks/review-design.md に書く。
+
+                      ## チェック観点
+                      - 画面構成、情報設計、主要導線が app.pen と整合していること
+                      - レイアウト、余白、グリッド、密度、レスポンシブ時の破綻がないこと
+                      - 色、タイポグラフィ、角丸、影、境界線、アイコン、状態表現が近いこと
+                      - hover / focus / selected / disabled / loading / empty / error などの状態表現
+                      - shadcn-svelte のトークンや既存デザインとの整合
+                      - 実操作に必要な UI が見た目だけで終わっていないこと
+                      - 文字のはみ出し、重なり、クリック不能領域、横スクロールの破綻がないこと
+
+                      docs/tasks/review-design.md の末尾に、必ず
+                      <promise>APPROVED</promise> または
+                      <promise>CHANGES_REQUESTED</promise> を出力してください。
+
+              - aggregate_design_review:
+                  run:
+                    shell:
+                      command: |
+                        if [ -f docs/tasks/review-design.md ] && grep -q '<promise>APPROVED</promise>' docs/tasks/review-design.md; then
+                          echo "<promise>COMPLETE</promise>"
+                        else
+                          echo "<promise>CONTINUE</promise>"
+                        fi
+
+        - mark_done:
+            run:
+              shell:
+                command: |
+                  sed -i.bak -E "s|^- \[ \] ${ .var.target }$|- [x] ${ .var.target }|" docs/tasks/implement-design-plan.md

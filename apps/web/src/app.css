@@ -1,5 +1,3 @@
-@import 'tailwindcss';
-
 /*
  * Inter is the canonical UI font defined in `apps/web/design/app.pen`
  * (Hkw62 "Add Node FAB", h3L8J "Add Node Popup" — both specify
@@ -12,8 +10,16 @@
  *
  * `&display=swap` query string mirrors the recommended Google Fonts
  * URL; `latin` + `latin-ext` covers the strings shipped in the editor.
+ *
+ * IMPORTANT: this `@import url(…)` MUST precede `@import 'tailwindcss';`.
+ * Tailwind v4's PostCSS plugin inlines the tailwindcss content in place,
+ * which means any subsequent `@import` rule lands among the inlined
+ * declarations and PostCSS rejects it with "@import must precede all
+ * other statements" — leaving Inter unfetched and the design's
+ * `fontFamily: "Inter"` tokens unmet (review-design.visual.md issue #2).
  */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import 'tailwindcss';
 
 /*
  * shadcn-svelte semantic-token bridge. The shadcn registry components
@@ -100,6 +106,48 @@
   --color-border-default: #383848;
   --color-border-strong: #4d4d63;
 
+  /*
+   * TopBar-scoped surface + bottom hairline. The persistent app shell's
+   * Top Bar (`Ht9Do` dark / `hcjon` light in `apps/web/design/app.pen`) is
+   * the only surface that uses these tokens. We split them out from the
+   * generic `--color-bg-surface` / `--color-border-subtle` because the
+   * design's light-theme Top Bar is `#FAFAFA` (warm tinted) over a
+   * `#F7F7FA` app body — sharing `--color-bg-surface` (which is `#FFFFFF`
+   * for cards / sidebar elevated surfaces) would flatten that hierarchy
+   * and erase the bar's "above the canvas" cue (review note
+   * review-design-topbar-frontend.md M-1). The bottom hairline needs the
+   * same isolation: the design uses `#EFEFF1` for the Top Bar but
+   * `#E4E4E9` for general subtle borders (M-2). On the dark theme the
+   * Pencil tokens (`$bg-surface = #161620`, `$border-subtle = #2A2A38`)
+   * align across both surfaces, so the Top Bar tokens just alias them.
+   */
+  --color-bg-topbar: var(--color-bg-surface);
+  --color-border-topbar: var(--color-border-subtle);
+
+  /*
+   * Version Tag pill (`apps/web/design/app.pen` `pBpzN` dark / `X8diZ`
+   * light) sits in the Top Bar Center next to the Saved status badge.
+   * Asymmetric per-theme binding mirrors what Pencil actually does:
+   *   - Dark `pBpzN` binds `fill: $bg-hover` and text `fill:
+   *     $text-secondary` as semantic refs, so the pill is meant to
+   *     ride along with whatever the theme's `$bg-hover` /
+   *     `$text-secondary` resolve to (Dark `#232333` / `#a8a8b8`,
+   *     contrast ~5.5:1, AA pass).
+   *   - Light `X8diZ` overrides those refs with the raw hexes
+   *     `#F4F4F5` / `#52525B` (no token reference). The light Top Bar
+   *     surface (`hcjon`) is `#FAFAFA`, so Pencil dialled the pill
+   *     fill up to a slightly cooler `#F4F4F5` and the text down to
+   *     `#52525B` — aliasing onto `--color-bg-hover` (`#f1f1f5`) /
+   *     `--color-text-secondary` (`#4d4d5e`) would have shifted both
+   *     channels off the design's swatch.
+   * Earlier draft pinned the dark token to `#2C2C33` / `#8E8E93`
+   * (a stale `resolveVariables=true` snapshot of the dark theme), which
+   * dropped contrast to ~3.31:1 (AA fail) and contradicted the pen
+   * semantic binding (review-design.md frontend must #1).
+   */
+  --color-bg-version-tag: var(--color-bg-hover);
+  --color-text-version-tag: var(--color-text-secondary);
+
   /* text */
   --color-text-primary: #e7e7f0;
   --color-text-secondary: #a8a8b8;
@@ -150,6 +198,17 @@
   --color-danger: #f87171;
   --color-danger-muted: #7f1d1d40;
   --color-danger-border: #7f1d1d;
+  /*
+   * `--color-warning` / `--color-error` mirror the `$warning` and
+   * `$error` swatches the design uses on the Left Sidebar's per-row
+   * status dots (`apps/web/design/app.pen`, `iHBGe → mpY73/X3MG0`
+   * warning amber on `bug-triage.yaml`, `wgdx6/fdhVD` red on the
+   * failed `release` recent run). `--color-error` aliases
+   * `--color-danger` so existing danger-tinted surfaces (alerts,
+   * destructive buttons) stay in step with the per-row error dot.
+   */
+  --color-warning: #fbbf24;
+  --color-error: var(--color-danger);
 
   /* panel shadows (neutral, NOT the accent purple) — used by the popover
      surface in `PatternPicker.svelte` so the colour follows theme
@@ -185,6 +244,29 @@
   --color-border-default: #d4d4dc;
   --color-border-strong: #b4b4bf;
 
+  /*
+   * See dark-theme note. Light-theme Top Bar swatches diverge from the
+   * generic surface / subtle-border tokens: design `hcjon` paints the bar
+   * `#FAFAFA` (warm tinted) over the `#F7F7FA` app body so the bar reads
+   * as "above the main canvas", and the bottom hairline is `#EFEFF1` —
+   * lighter than the generic `#E4E4E9` so the bar's edge fades almost to
+   * nothing on the white surface (review-design-topbar-frontend.md
+   * M-1 / M-2).
+   */
+  --color-bg-topbar: #fafafa;
+  --color-border-topbar: #efeff1;
+
+  /*
+   * See dark-theme note for the asymmetric binding rationale. Pencil's
+   * light Version Tag (`X8diZ`) breaks from the `$bg-hover` /
+   * `$text-secondary` refs the dark variant uses and pins raw hex
+   * `#F4F4F5` / `#52525B` instead — these are kept verbatim here so
+   * the pill stays exactly as designed on the warm `#FAFAFA` Top Bar
+   * surface. Contrast `#52525B` on `#F4F4F5` ≈ 8.5:1 (AAA).
+   */
+  --color-bg-version-tag: #f4f4f5;
+  --color-text-version-tag: #52525b;
+
   --color-text-primary: #18181f;
   --color-text-secondary: #4d4d5e;
   --color-text-tertiary: #6e6e80;
@@ -210,6 +292,11 @@
   --color-danger: #dc2626;
   --color-danger-muted: #fee2e2;
   --color-danger-border: #fca5a5;
+  /* See dark-theme note for `--color-warning`/`--color-error`. The
+     light-theme warning is darker (amber 600) so the small dot retains
+     contrast on the white sidebar surface. */
+  --color-warning: #d97706;
+  --color-error: var(--color-danger);
 
   /* See dark-theme note. On light surfaces, the panel sits on white so
      a softer translucent shadow keeps the popover lifted without

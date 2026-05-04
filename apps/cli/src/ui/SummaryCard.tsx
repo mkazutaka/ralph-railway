@@ -5,16 +5,6 @@ import { formatTotalElapsed } from './format';
 import { glyph, theme } from './theme';
 import type { State } from './useEngineState';
 
-function summarize(state: State): { done: number; error: number } {
-  let done = 0;
-  let error = 0;
-  for (const e of state.logEntries) {
-    if (e.kind === 'task-end') done += 1;
-    else if (e.kind === 'task-error') error += 1;
-  }
-  return { done, error };
-}
-
 export function SummaryCard({
   state,
   finishedAt,
@@ -22,8 +12,7 @@ export function SummaryCard({
   state: State;
   finishedAt: number;
 }): ReactElement {
-  const s = summarize(state);
-  const ok = s.error === 0;
+  const ok = state.erroredTasks === 0;
   const headColor = ok ? theme.done : theme.error;
   const headLabel = ok ? 'finished' : 'finished with errors';
   const elapsedMs = finishedAt - state.startedAt;
@@ -43,7 +32,8 @@ export function SummaryCard({
       <Box>
         <Text color={theme.dim}>tasks </Text>
         <Text>
-          {state.totalTasks} total {glyph.done} {s.done} {glyph.error} {s.error}
+          {state.totalTasks} total {glyph.done} {state.completedTasks} {glyph.error}{' '}
+          {state.erroredTasks}
         </Text>
       </Box>
       <Box>

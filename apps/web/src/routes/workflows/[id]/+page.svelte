@@ -11,34 +11,57 @@
 
   Compose-only scenarios mounted here: `insert-pattern` (PatternPicker FAB),
   `run-workflow` / `stop-run` (RunWorkflowButton + RunDetail), `read-run-detail`
-  (RecentRuns / RunDetail), `test-node` (TestNodePanel). The rest of the
-  Pencil design (`apps/web/design/app.pen`, frame `k1kIS`):
-    - Top Bar (`Ht9Do`) with History/Settings/Share/Run + avatar
-    - Left Sidebar (`iHBGe`) with file tree / recent runs
-    - Right Panel (`SV10l`) with node settings tabs
-    - Tab Bar / Canvas Toolbar / Execution Bar / Minimap / Zoom Controls
-  is intentionally out of scope here and will land via separate scenarios.
-  Only the canvas FAB (`Hkw62` "Add Node FAB") is brought in because it is
-  the entry point for THIS scenario.
+  (RecentRuns / RunDetail), `test-node` (TestNodePanel).
 
-  Layout responsibility: this component composes the YAML buffer (left
-  pane), the read-only flow visualisation (right pane / canvas), and the
-  PatternPicker FAB anchored on the canvas. All mutation logic lives in
-  `editorState.svelte.ts` so the page stays a thin layout shell.
+  Layout (post review-design):
+
+      ┌────────── App Shell (`+layout.svelte`) ──────────┐
+      │ TopBar                                            │
+      ├──────────┬─────────────────────────┬──────────────┤
+      │ Left     │ Tab Bar (file tabs)     │ Right Panel  │
+      │ Sidebar  ├─────────────────────────┤ (`SV10l`)    │
+      │ (file    │ Canvas (FlowGraph + FAB)│  - RunDetail │
+      │  tree)   │                         │  - TestNode  │
+      │          ├─────────────────────────┤              │
+      │  Recent  │ YAML buffer (collapsed  │              │
+      │  Runs    │  bottom drawer)         │              │
+      └──────────┴─────────────────────────┴──────────────┘
+
+  This page composes the *center* and *right* columns. The Left Sidebar +
+  Top Bar live in `+layout.svelte`; this page publishes its editor
+  binding (workflow id, save status, selected run id) into the layout via
+  `topBarContext.svelte.ts` so:
+    - The Top Bar's Save / Run / "Saved" pill bind to this page's editor.
+    - The Left Sidebar swaps its read-only `SidebarRecentRuns` footer for
+      the interactive `RecentRuns` panel, whose row clicks drive
+      `selectedRunId` here — which in turn feeds the right-column
+      `RunDetail` panel.
+
+  The previous layout stacked YAML / Canvas side-by-side and pushed
+  RecentRuns / RunDetail / TestNodePanel under the YAML pane. That made
+  the YAML pane a peer of the canvas and starved the per-node inspection
+  surfaces of horizontal real estate; the Pencil design (`k1kIS / RV8SI`)
+  treats the canvas as primary and dedicates the right column to the
+  inspector. We now mirror that intent.
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import yaml from 'js-yaml';
+  import ChevronDown from 'lucide-svelte/icons/chevron-down';
+  import ChevronUp from 'lucide-svelte/icons/chevron-up';
+  import EditorTabs from '$lib/components/app-shell/EditorTabs.svelte';
   import Graph from '$lib/flow/Graph.svelte';
   import { yamlToFlow } from '$lib/workflow/to-flow';
   import { flowGraphFromDto } from '$lib/workflow/from-dto';
   import PatternPicker from '$features/workflow-editor/components/PatternPicker.svelte';
-  import RecentRuns from '$features/workflow-editor/components/RecentRuns.svelte';
   import RunDetail from '$features/workflow-editor/components/RunDetail.svelte';
-  import RunWorkflowButton from '$features/workflow-editor/components/RunWorkflowButton.svelte';
   import TestNodePanel from '$features/workflow-editor/components/TestNodePanel.svelte';
-  import SaveButton from '$lib/components/save-button.svelte';
   import { createEditorState } from '$features/workflow-editor/lib/editorState.svelte';
   import { editorCopy } from '$features/workflow-editor/lib/editorCopy';
+  import {
+    getTopBarEditorHolder,
+    type TopBarSaveStatus,
+  } from '$lib/components/app-shell/topBarContext.svelte';
 
   import type { RunSummaryDto } from '$features/workflow-editor/entities/dto';
 
@@ -50,93 +73,155 @@
   // svelte-ignore state_referenced_locally
   const editor = createEditorState({ initialYaml: data.yaml, workflowId: data.id });
 
-  // Re-sync the buffer whenever the load function reruns (e.g. after a
-  // successful pattern insertion calls `invalidateAll`, or the user
-  // navigates to a different `/workflows/[id]` route while the page
-  // component is reused). Passing `{ id, yaml }` keeps the captured
-  // workflow id in lockstep with the buffer so `editor.save()` always
-  // targets the visible workflow.
+  /**
+   * Currently inspected run. `null` means "no run selected" — the
+   * RunDetail panel renders an empty-state caption in that case.
+   *
+   * The selection lives on this page so two surfaces can react to it:
+   *
+   *   - The interactive `RecentRuns` panel mounted in the *layout's*
+   *     left sidebar (via the editor context bridge below). Clicking a
+   *     row there flows into `setSelectedRunId`, which mutates this
+   *     `$state`.
+   *   - The `RunDetail` panel mounted in this page's right column,
+   *     which reads `selectedRunId` directly.
+   *
+   * Hoisted above the Top Bar bridge so the bridge's `onRunStarted`
+   * callback (fired by the Top Bar's `RunWorkflowButton`) can poke it
+   * directly. The same field is what the Left Sidebar reads for its
+   * `aria-current` highlight on the selected run row.
+   */
+  let selectedRunId: string | null = $state(null);
+
+  /**
+   * Workflow version string the Top Bar's Version Tag pill (`pBpzN` in
+   * `app.pen`) mirrors. Derived from the live YAML buffer (not the
+   * server-rendered `data.opened`) so the pill tracks unsaved edits
+   * immediately. We re-parse with the same `JSON_SCHEMA` policy the
+   * server uses (`features/workflow-editor/lib/yaml.ts`) — this keeps
+   * the two surfaces aligned on what counts as a parseable mid-edit
+   * buffer (a half-typed key transiently fails parse → pill collapses
+   * for one keystroke → reappears once the structure is valid again).
+   *
+   * `null` when the buffer fails to parse or omits `document.version`
+   * entirely; `TopBar.svelte` collapses the pill in that case rather
+   * than rendering an empty chip. Numeric / boolean YAML scalars are
+   * coerced to strings so a tagless `version: 1.0` still surfaces.
+   */
+  const workflowVersion = $derived.by<string | null>(() => {
+    let parsed: unknown;
+    try {
+      parsed = yaml.load(editor.yaml, { schema: yaml.JSON_SCHEMA });
+    } catch {
+      return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const doc = (parsed as { document?: unknown }).document;
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+    const v = (doc as { version?: unknown }).version;
+    if (v === undefined || v === null || v === '') return null;
+    if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') return null;
+    return String(v);
+  });
+
+  /**
+   * Save-status summary the Top Bar's pill mirrors. Computed from the
+   * editor's transient `message` + `messageTone`. Order of branches
+   * matters: `saving` always wins over the post-save `message`,
+   * otherwise the pill would flicker `saved → saving → saved`
+   * mid-keystroke when the user starts typing again.
+   */
+  const topBarSaveStatus = $derived<TopBarSaveStatus>(
+    editor.saving
+      ? 'saving'
+      : editor.message === editorCopy.saved
+        ? 'saved'
+        : editor.messageTone === 'error'
+          ? 'error'
+          : 'idle',
+  );
+
+  /**
+   * Publish the editor binding to the persistent app shell. The Top Bar
+   * reads `workflowId` / `saving` / `saveStatus` / `save()` /
+   * `onRunStarted()`. The Left Sidebar reads `selectedRunId` /
+   * `setSelectedRunId()` to mount the interactive `RecentRuns` panel
+   * with selection wired through this page (review-design.md: "RecentRuns
+   * をサイドバー内にマウントする").
+   *
+   * Stable holder identity, getters for live values — same pattern as
+   * before, just with two new fields for the sidebar selection contract.
+   */
+  const topBarHolder = getTopBarEditorHolder();
+  topBarHolder.value = {
+    get workflowId() {
+      return data.id;
+    },
+    get saving() {
+      return editor.saving;
+    },
+    get saveStatus() {
+      return topBarSaveStatus;
+    },
+    get version() {
+      return workflowVersion;
+    },
+    get selectedRunId() {
+      return selectedRunId;
+    },
+    save: () => editor.save(),
+    onRunStarted: (runId) => {
+      selectedRunId = runId;
+    },
+    setSelectedRunId: (runId) => {
+      selectedRunId = runId;
+    },
+  };
+  onDestroy(() => {
+    // Clear the binding when the editor route unmounts so the Top Bar
+    // collapses Save / Run controls and the Sidebar reverts to its
+    // read-only `SidebarRecentRuns` footer instead of pointing at a
+    // stale workflow id.
+    topBarHolder.value = null;
+  });
+
+  // Re-sync the buffer whenever the load function reruns.
   $effect(() => {
-    // Destructure the reactive deps explicitly so static analysis (and
-    // human readers) can see exactly which fields drive this effect, and
-    // so the call to `syncFromServer` does not hide reactive accesses
-    // inside an inline object literal (review note m4).
     const { id, yaml } = data;
     editor.syncFromServer({ id, yaml });
   });
 
   onDestroy(() => editor.dispose());
 
-  // Hybrid graph source (review note F-1):
-  //
-  //   - Initial render + idle (buffer === server YAML) → use the server-built
-  //     `data.opened.graph` directly, so SSR and the first client paint render
-  //     the exact same DMMF entity the rest of the feature consumes. This
-  //     eliminates the "two parsers, two outputs" flicker between the SSR
-  //     payload and the client `yamlToFlow` re-parse, and gives the scenario
-  //     contract (`Graph: FlowGraph`) a real consumer in the UI.
-  //
-  //   - Live edits (buffer !== server YAML) → fall back to the client-side
-  //     `yamlToFlow`, which is memoised (`apps/web/src/lib/workflow/to-flow.ts`)
-  //     and produces stable references on identical input so SvelteFlow does
-  //     not re-run its layout / fitView passes on every keystroke that does
-  //     not change the parsed graph (review note P1-1).
-  //
-  // The branch reads `data.yaml` (the SSR-emitted source the server graph was
-  // built against) rather than `data.opened.yaml` so it stays in lockstep with
-  // the legacy `data.yaml` field that `editor.syncFromServer` already mirrors
-  // — keeping the comparison string identical to the buffer-init source.
-  //
-  // `serverGraph` is memoised on the SSR-emitted DTO (review note P1-3): the
-  // server payload is immutable per load() invocation, so we want a single
-  // adapter run per navigation rather than one per keystroke. The `$derived`
-  // dependency tracker only reruns this when `data.opened.graph` changes
-  // identity, which happens via `invalidateAll()` after pattern insertion or
-  // a route change — exactly the points the new graph should reflect.
+  // Hybrid graph source (review note F-1): server graph for SSR + idle
+  // buffer, client `yamlToFlow` for live edits.
   const serverGraph = $derived.by(() => flowGraphFromDto(data.opened.graph));
   let parsed = $derived(
     editor.yaml === data.yaml ? serverGraph : yamlToFlow(editor.yaml),
   );
   let patterns = $derived(data.patterns);
   // Heading id is shared with the textarea so screen readers announce the
-  // workflow name (`data.opened.name`, with the file basename rendered next
-  // to it for sighted-only context) when focus enters the YAML buffer (M-3).
+  // workflow name when focus enters the YAML buffer (M-3). Mirrors the
+  // EditorTabs `aria-controls` target so the tab strip + canvas pane stay
+  // associated for assistive tech.
   const HEADING_ID = 'workflow-editor-heading';
+  const CANVAS_PANE_ID = 'workflow-canvas-pane';
 
-  // Currently inspected run. `null` means "no run selected" — the
-  // RunDetail panel renders an empty-state caption in that case. The
-  // selection lives on the page (not inside `RecentRuns`) so two
-  // independent components — the run list and the run-detail panel —
-  // can react to it without prop-drilling state through a shared
-  // parent component (mirrors the read-run-detail scenario, where the
-  // user picks a run in the sidebar and then reads its detail).
-  let selectedRunId: string | null = $state(null);
-
-  // Reset the selection whenever the workflow id changes. A run id
-  // always belongs to a single workflow (the API returns 404 if the
-  // ids don't match) so a stale selection from the previous workflow
-  // would only ever resolve to a 404 panel — friendlier to clear it.
+  // Reset the selection whenever the workflow id changes. A run id always
+  // belongs to a single workflow (the API returns 404 if the ids don't
+  // match) so a stale selection from the previous workflow would only ever
+  // resolve to a 404 panel.
   $effect(() => {
-    // Re-read the dependency explicitly so the linter / human reader
-    // can see what drives the reset.
     const _id = data.id;
     void _id;
     selectedRunId = null;
   });
 
   /**
-   * Latest run summary for the current workflow. Drives the canvas
-   * Execution Bar (Pencil `hVaDB`): the bar surfaces the most recent run's
-   * status / duration so the user can see "did the workflow last succeed?"
-   * without leaving the canvas. `null` means no runs yet — the bar
-   * collapses and the help-hint takes its slot (see `Graph.svelte`).
-   *
-   * Owns its own fetch (mirroring the policy already documented on
-   * `RecentRuns.svelte`): re-loading the page-level `data.yaml` every time
-   * a run completes would re-mount the canvas, which is too disruptive
-   * just to refresh a status pill. We pull `/api/workflows/:id/runs` here,
-   * sort by `startedAt`, take the first row, and refresh on a 15s tick so
-   * the bar reflects new runs without forcing a hard reload.
+   * Latest run summary for the current workflow — drives the canvas
+   * Execution Bar (Pencil `hVaDB`). Owns its own fetch so re-loading the
+   * page-level `data.yaml` does not have to invalidate every time a run
+   * completes.
    */
   let latestRun: RunSummaryDto | null = $state(null);
 
@@ -153,17 +238,12 @@
         if (!res.ok) return;
         const body = (await res.json()) as RunSummaryDto[];
         if (cancelled) return;
-        // Pick the run with the most recent `startedAt`. The endpoint already
-        // returns runs in reverse-chronological order today (see
-        // `recentRunsRoute.ts`), but sorting defensively here keeps the
-        // surface correct even if the API contract loosens later.
         const sorted = [...body].sort((a, b) => b.startedAt - a.startedAt);
         latestRun = sorted[0] ?? null;
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
         // Soft-fail: a transient network error should not flicker the
-        // canvas surface. The bar simply keeps its previous value (or
-        // stays hidden if it was never populated).
+        // canvas surface.
       }
     }
 
@@ -175,270 +255,231 @@
       clearInterval(tick);
     };
   });
+
+  /**
+   * YAML buffer drawer toggle. The design (`k1kIS / RV8SI`) does not draw
+   * a YAML pane at all — the canvas is the primary editing surface and
+   * the file tab represents the open document. Our app still needs the
+   * raw YAML accessible (every E2E suite asserts the textarea is visible
+   * on load, and the YAML is the canonical source for hand-edited
+   * workflows), so we render it as a collapsible bottom drawer inside
+   * the center column.
+   *
+   * Defaults to *open* so the textbox is visible on the first paint
+   * (the open-workflow scenario explicitly verifies the buffer is
+   * present + populated). Users can collapse the drawer to give the
+   * canvas the full center-column height once they're done editing.
+   */
+  let yamlOpen: boolean = $state(true);
 </script>
 
 <!--
-  Mobile (<lg): two equal rows so the canvas + FAB stay reachable
-  without scrolling. Desktop (>=lg): side-by-side panes.
+  Editor body.
 
-  Use `h-[100dvh]` (dynamic viewport height) so the layout collapses with
-  the iOS / Android virtual keyboard rather than pushing the canvas pane
-  off-screen — `100vh` keeps the full viewport size when the keyboard
-  appears, which leaves the FAB unreachable on mobile devices (review note
-  Optional-4).
+  Two-column grid (canvas/yaml stack on the left, inspector panel on the
+  right). The Left Sidebar is owned by `+layout.svelte` and sits to the
+  left of this `<section>`.
+
+  Mobile (`<lg`): the inspector stacks under the canvas+yaml column so
+  every surface is reachable via vertical scroll. Desktop (`>=lg`): the
+  inspector pins to the right at 340px (matching `SV10l.width: 340` in
+  the design) and the center column flexes to fill the remainder.
+
+  `h-full` matches the layout's main column height — the Top Bar's 56px
+  has already been subtracted upstream.
 -->
-<main
-  class="grid h-[100dvh] grid-cols-1 grid-rows-[minmax(40vh,1fr)_minmax(40vh,1fr)] lg:grid-cols-2 lg:grid-rows-1"
+<section
+  class="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(40vh,1fr)_auto] overflow-y-auto lg:grid-cols-[1fr_340px] lg:grid-rows-1 lg:overflow-hidden"
 >
-  <!-- Left pane: YAML buffer + save button -->
-  <section
-    class="flex min-h-0 flex-col border-(--color-border-default) bg-(--color-bg-app) lg:border-r"
+  <!--
+    Center column: file Tab Bar (`vWzaI`) + Canvas + collapsible YAML
+    buffer drawer.
+
+    Tab Bar is rendered by `EditorTabs.svelte` (app-shell), which
+    encapsulates the design's `vWzaI` 38px row + active tab silhouette
+    (`iDcnj`) and wires the close affordance to navigate back to `/`.
+    See the EditorTabs file header for why exactly one tab is rendered
+    today (the editor route is single-document; placeholder dummy tabs
+    would mis-cue users that other files are "open in another tab"
+    when no per-tab buffer state exists).
+  -->
+  <div
+    class="flex min-h-0 flex-col bg-(--color-bg-canvas) lg:overflow-hidden"
   >
-    <header
-      class="flex items-center justify-between border-b border-(--color-border-default) bg-(--color-bg-surface) px-4 py-2"
-    >
-      <!--
-        Heading carries the workflow's display name (`data.opened.name`,
-        derived from the YAML `document.name` with a file-basename fallback —
-        see `newOpenedWorkflow` in `entities/openedWorkflow.ts`). The file id
-        is shown alongside as supplementary context so users can still see
-        which file on disk is open, while screen readers announce the
-        descriptive name first (review notes F-3 / F-6).
-      -->
-      <h1
-        id={HEADING_ID}
-        class="flex min-w-0 items-baseline gap-2 truncate text-sm font-medium text-(--color-text-primary)"
-      >
-        <span class="truncate">{data.opened.name}</span>
-        <!--
-          File basename is decorative for sighted users (it duplicates info
-          the screen reader already gets via the `<h1>` text). Hide it from
-          assistive tech with `aria-hidden="true"` so the heading announces
-          the human name only, matching the read-aloud contract documented on
-          the textarea below (M-3).
-        -->
-        <small
-          class="truncate text-xs font-normal text-(--color-text-secondary)"
-          aria-hidden="true">{data.id}</small
-        >
-      </h1>
-      <div class="flex items-center gap-3 text-xs">
-        {#if editor.message}
-          <!--
-            Error toasts go through `role="alert" aria-live="assertive"`
-            because the user usually needs to act on them; success toasts
-            stay on `role="status" aria-live="polite"` so they don't
-            interrupt screen reader output mid-sentence (M-3).
-          -->
-          {#if editor.messageTone === 'error'}
-            <span
-              data-testid="editor-toast"
-              class="text-(--color-danger)"
-              role="alert"
-              aria-live="assertive">{editor.message}</span
-            >
-          {:else}
-            <!--
-              Success / info toast. Wrap the message in a low-contrast
-              success-tinted badge so the cue is visible even when the
-              user's eye is on the canvas / textarea (review note m-5:
-              `--color-success-muted` was previously defined but unused,
-              and bare secondary text on the dark surface was on the
-              edge of WCAG AA at small sizes). The padding also gives
-              the toast a recognisable shape, distinct from the danger
-              variant above.
-            -->
-            <span
-              data-testid="editor-toast"
-              class="rounded bg-(--color-success-muted) px-2 py-0.5 text-(--color-text-primary)"
-              role="status"
-              aria-live="polite">{editor.message}</span
-            >
-          {/if}
-        {/if}
-        <SaveButton
-          type="button"
-          disabled={editor.saving}
-          aria-busy={editor.saving}
-          onclick={() => editor.save()}
-        >
-          {editor.saving ? editorCopy.savingLabel : editorCopy.saveLabel}
-        </SaveButton>
-        <!--
-          Run trigger (run-workflow scenario). POSTs to
-          `/api/workflows/:id/runs` and surfaces the newly-minted run id via
-          `onStarted`. We pipe the id into `selectedRunId` so the run-detail
-          panel below auto-loads the fresh run; the recent-runs panel will
-          pick the new row up on its next interval/refresh tick. Failures
-          surface inline next to the button (own `role="alert"` region) and
-          do NOT also flow into the editor toast bar — duplicate live
-          regions would stutter screen-reader output (mirrors the policy
-          documented for the PatternPicker insert-failure path).
-        -->
-        <RunWorkflowButton
-          workflowId={data.id}
-          onStarted={(runId) => (selectedRunId = runId)}
-        />
-      </div>
-    </header>
     <!--
-      The textarea's accessible name is `editorCopy.yamlAriaLabel`
-      ("Workflow YAML"), set explicitly via `aria-label`. We deliberately
-      do NOT use `aria-labelledby={HEADING_ID}` here because the heading
-      content is the workflow's display name (e.g. "Daily Backup") which
-      would replace the descriptive label and make the textbox harder to
-      identify by role-and-name in tooling / assistive tech / Playwright.
-      The heading is instead linked via `aria-describedby` so screen
-      readers announce the workflow name as supplementary context after
-      the role+name (M-3).
+      Visually hidden `<h1>` so the route still has a single primary
+      heading for assistive tech (the previous markup folded the `<h1>`
+      into the inline tab; extracting EditorTabs into its own component
+      means the page now owns the heading directly). Mirrors the
+      sr-only heading pattern used on `/` and `/workflows/new`.
     -->
-    <textarea
-      class="h-full min-h-0 flex-1 resize-none overflow-auto bg-(--color-bg-canvas) p-3 font-mono text-xs whitespace-pre text-(--color-text-primary) outline-none"
-      bind:value={editor.yaml}
-      aria-label={editorCopy.yamlAriaLabel}
-      aria-describedby={parsed.error
-        ? `${HEADING_ID} ${editorCopy.yamlErrorElementId}`
-        : HEADING_ID}
-      spellcheck="false"
-      autocapitalize="off"
-      autocomplete="off"
-    ></textarea>
-    {#if parsed.error}
-      <!--
-        Passive validation banner: not `role="alert"` because the message
-        already lives in the textarea's `aria-describedby` chain (see above)
-        and double-announcing it as an interruptive alert is hostile in
-        screen-reader output. We still flag it to assistive tech via
-        `aria-live="polite"` so a parse error introduced by typing is
-        announced once after the user stops editing. The split between this
-        passive surface and the toast `role="alert"` (M-3) is intentional —
-        the toast is reserved for outcomes of explicit user actions.
-      -->
-      <p
-        id={editorCopy.yamlErrorElementId}
-        aria-live="polite"
-        class="border-t border-(--color-danger-border) bg-(--color-danger-muted) px-3 py-1 text-xs text-(--color-danger)"
-      >
-        {parsed.error}
-      </p>
-    {/if}
-    <!--
-      Recent runs panel. Mirrors the `RECENT RUNS` section that lives at
-      the bottom of the Left Sidebar (`iHBGe`) in
-      `apps/web/design/app.pen` — a small uppercase heading followed by
-      the most recent run rows.
+    <h1 id={HEADING_ID} class="sr-only" title={data.id}>
+      {data.opened.name}
+    </h1>
 
-      Mount location is provisional (review note M1): the canonical home
-      is the design's Left Sidebar, which has not yet been built (it
-      lands in a separate scenario covering the file tree + workflow
-      switcher). Until then we mount it underneath the YAML textarea so
-      users still see run status while editing. The component itself caps
-      its height + scrolls vertically so a tall run list cannot push the
-      textarea off-screen.
-
-      The component owns its own fetch against `/api/workflows/:id/runs`
-      so the editor's load function stays focused on the YAML buffer
-      (re-loading the buffer every time a run completes would re-mount
-      the canvas, see `+page.server.ts` `load` JSDoc).
-    -->
-    <RecentRuns
+    <EditorTabs
       workflowId={data.id}
-      selectedRunId={selectedRunId}
-      onSelect={(runId) => (selectedRunId = runId)}
+      workflowName={data.opened.name}
+      canvasPaneId={CANVAS_PANE_ID}
     />
-    <!--
-      Run detail panel. Mirrors the read-run-detail scenario
-      (`apps/web/docs/scenarios/workflow-editor/read-run-detail.md`):
-      when the user picks a row in the recent-runs panel above, the
-      panel here fetches `/api/workflows/:id/runs/:runId` and renders
-      per-node status / output / error / log excerpts.
 
-      Mount location is provisional (mirrors the recent-runs note):
-      the canonical home is the design's Right Panel (`SV10l`, width
-      340) which today shows per-node settings. Until that scenario
-      lands the panel sits in the same column as the YAML buffer; the
-      component caps its own height + scrolls so a long node list
-      cannot push the canvas off-screen.
-    -->
     <!--
-      `onStopAccepted` is wired through to the page so future scenarios
-      (e.g. the recent-runs panel auto-refreshing after a stop) can hook
-      in here without re-plumbing props. Today RunDetail re-fetches its
-      own data after a stop is accepted so the user observes the
-      eventual `cancelled` transition; the recent-runs sidebar will
-      update on its next interval tick — see RecentRuns' own data flow
-      JSDoc for the re-fetch contract.
+      Canvas pane (mirrors `EbnDF` Canvas Area). Holds the SvelteFlow
+      visualisation + the Add Node FAB (`Hkw62`). `relative` makes the
+      FAB's `absolute` placement land inside this pane.
     -->
+    <section
+      id={CANVAS_PANE_ID}
+      class="relative flex min-h-0 flex-1 flex-col bg-(--color-bg-canvas)"
+      aria-label="Workflow flow graph"
+    >
+      <Graph nodes={parsed.nodes} edges={parsed.edges} {latestRun} />
+      <!--
+        FAB anchored top-right, aligned with the design's Canvas Toolbar
+        baseline (`gskMk` / `Hkw62`).
+      -->
+      <div class="pointer-events-none absolute top-3 right-3 z-10">
+        <div class="pointer-events-auto">
+          <PatternPicker
+            {patterns}
+            onInserted={(id, yaml) => editor.notifyInserted(id, yaml)}
+          />
+        </div>
+      </div>
+    </section>
+
+    <!--
+      YAML buffer drawer.
+
+      The Pencil design treats the canvas as the primary editing surface
+      and does not draw a peer YAML pane. We still need the raw buffer
+      visible (open-workflow scenario asserts both the textarea and the
+      graph are present on load, and YAML is the canonical hand-editable
+      format for workflows), so we render it as a collapsible bottom
+      drawer that:
+        - Defaults to open so the first paint shows the buffer (E2E
+          contract).
+        - Caps its own height (`max-h-[40vh]` on `lg:`) so a long YAML
+          file cannot push the canvas off-screen.
+        - Toggles via a thin header row, mirroring the design's
+          surface-on-canvas rhythm (`bg-surface` over `bg-canvas`).
+
+      The toolbar / status row owns the heading text + save toast so
+      screen readers still announce the workflow name when focus enters
+      the textarea (`aria-describedby` chain below). We deliberately
+      avoid promoting the toggle to a `<details>` element because the
+      textarea inside `<details>` would lose focus on every collapse,
+      and the open-workflow E2E suite walks focus through the buffer.
+    -->
+    <div
+      class="flex shrink-0 flex-col border-t border-(--color-border-default) bg-(--color-bg-app) lg:max-h-[40vh]"
+    >
+      <div
+        role="region"
+        aria-label={`${data.opened.name} YAML buffer toolbar`}
+        class="flex items-center justify-between gap-3 border-b border-(--color-border-subtle) bg-(--color-bg-surface) px-4 py-2"
+      >
+        <button
+          type="button"
+          onclick={() => (yamlOpen = !yamlOpen)}
+          aria-expanded={yamlOpen}
+          aria-controls="workflow-yaml-buffer"
+          class="flex min-w-0 items-center gap-2 text-xs font-medium text-(--color-text-secondary) hover:text-(--color-text-primary) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-(--color-accent) focus-visible:outline-none"
+        >
+          {#if yamlOpen}
+            <ChevronDown class="size-3.5" aria-hidden="true" />
+          {:else}
+            <ChevronUp class="size-3.5" aria-hidden="true" />
+          {/if}
+          <span>{editorCopy.yamlAriaLabel}</span>
+        </button>
+        <!--
+          Save toast region. Errors use `role="alert"` so they interrupt;
+          success / info uses `role="status"` so it does not. Same split
+          as before the layout change.
+        -->
+        <div class="flex items-center gap-3 text-xs" aria-live="polite">
+          {#if editor.message}
+            {#if editor.messageTone === 'error'}
+              <span
+                data-testid="editor-toast"
+                class="text-(--color-danger)"
+                role="alert"
+                aria-live="assertive">{editor.message}</span
+              >
+            {:else}
+              <span
+                data-testid="editor-toast"
+                class="rounded bg-(--color-success-muted) px-2 py-0.5 text-(--color-text-primary)"
+                role="status"
+                aria-live="polite">{editor.message}</span
+              >
+            {/if}
+          {/if}
+        </div>
+      </div>
+      {#if yamlOpen}
+        <textarea
+          id="workflow-yaml-buffer"
+          class="min-h-[20vh] w-full flex-1 resize-none overflow-auto bg-(--color-bg-canvas) p-3 font-mono text-xs whitespace-pre text-(--color-text-primary) outline-none lg:min-h-0"
+          bind:value={editor.yaml}
+          aria-label={editorCopy.yamlAriaLabel}
+          aria-describedby={parsed.error
+            ? `${HEADING_ID} ${editorCopy.yamlErrorElementId}`
+            : HEADING_ID}
+          spellcheck="false"
+          autocapitalize="off"
+          autocomplete="off"
+        ></textarea>
+        {#if parsed.error}
+          <p
+            id={editorCopy.yamlErrorElementId}
+            aria-live="polite"
+            class="border-t border-(--color-danger-border) bg-(--color-danger-muted) px-3 py-1 text-xs text-(--color-danger)"
+          >
+            {parsed.error}
+          </p>
+        {/if}
+      {/if}
+    </div>
+  </div>
+
+  <!--
+    Right Panel (`SV10l` in `apps/web/design/app.pen`).
+
+    The design draws a 340px-wide vertical panel pinned to the right of
+    the editor body, hosting the per-node Settings/Input/Output tabs +
+    "Test Step" CTA. Today the schema-driven Settings editor is not yet
+    wired (no remote function exposes per-node configuration as a
+    structured form), so we render the panel skeleton with the surfaces
+    that *are* backed today: `RunDetail` (read-run-detail scenario) and
+    `TestNodePanel` (test-node scenario).
+
+    `RecentRuns` previously also lived here — it has been hoisted into
+    the Left Sidebar so the design's "list of runs lives in the
+    sidebar" intent (`iHBGe` recent-runs rows) is honoured. The page
+    still owns the selected-run state; the sidebar drives it via
+    `setSelectedRunId` published through the editor context bridge.
+
+    Mobile (`<lg`): stacks under the canvas+yaml column so the inspector
+    stays reachable via vertical scroll. Desktop (`>=lg`): pins to the
+    right with the design's 340px width and its own scroll container.
+  -->
+  <aside
+    class="flex min-h-0 flex-col border-t border-(--color-border-subtle) bg-(--color-bg-surface) lg:overflow-hidden lg:border-t-0 lg:border-l"
+    aria-label="Workflow inspection panel"
+  >
     <RunDetail
       workflowId={data.id}
       runId={selectedRunId}
       onClose={() => (selectedRunId = null)}
       onStopAccepted={() => {
-        // Intentionally a no-op for now: RunDetail handles its own
-        // refresh, and RecentRuns will catch up on its next tick. A
-        // future scenario covering "auto-refresh recent runs after a
-        // stop" can replace this with a refresh-trigger.
+        // Intentionally a no-op — the panel re-fetches itself.
       }}
     />
-    <!--
-      Test Node panel. Mirrors the test-node scenario
-      (`apps/web/docs/scenarios/workflow-editor/test-node.md`): the user
-      enters a node id + dummy inputs and POSTs to
-      `/api/workflows/:id/nodes/:nodeId/test`. The result (succeeded /
-      failed + output / error / log excerpt) is rendered inline.
-
-      Mount location is provisional (mirrors the RunDetail / RecentRuns
-      siblings): the canonical home is the design's Right Panel
-      (`SV10l`, width 340) which today shows per-node settings + the
-      "Test Step" button. Until the right-panel scenario migrates that
-      surface, the panel sits in the same column as the YAML buffer; it
-      caps its own height + scrolls so a long inputs list cannot push
-      the canvas off-screen.
-
-      Scenario invariants 1 & 2 (no run history mutation, no YAML
-      rewrite) are enforced server-side; the panel only owns the
-      request/response cycle.
-    -->
     <TestNodePanel
       workflowId={data.id}
       nodeIds={parsed.nodes.map((n) => n.id)}
     />
-  </section>
-
-  <!-- Right pane: canvas + FAB (Add Node). Mirrors `apps/web/design/app.pen`
-       node `Hkw62`: the FAB floats in the upper-right corner of the canvas
-       with the accent fill + soft purple shadow. `relative` here makes the
-       FAB's `absolute` placement land inside the canvas pane.
-
-       The `aria-label` makes the visualised graph discoverable to assistive
-       tech as a labelled landmark — the open-workflow scenario asks the user
-       to "confirm the YAML source and the visualised graph", and without a
-       name the section was indistinguishable from the YAML pane in
-       screen-reader rotor lists (review note F-6 follow-up). -->
-  <section class="relative min-h-0 bg-(--color-bg-canvas)" aria-label="Workflow flow graph">
-    <Graph nodes={parsed.nodes} edges={parsed.edges} {latestRun} />
-    <!--
-      FAB is positioned to align horizontally with the Canvas Toolbar
-      (`gskMk`, top-center of canvas). xyflow's Panel uses ~12px top
-      padding, so we mirror it (`top-3`) so the FAB and toolbar share a
-      baseline (review note P2 / FAB alignment). On `sm:` we keep the
-      same offset since the toolbar's Panel padding is constant.
-    -->
-    <div class="pointer-events-none absolute top-3 right-3 z-10">
-      <div class="pointer-events-auto">
-        <!--
-          Insert failures are surfaced inside the picker popover only — the
-          popover stays open on failure so the user can see the message in
-          context and pick a different pattern. We deliberately don't echo
-          the failure into the editor toast bar to avoid duplicate
-          `role="alert"` regions firing simultaneously (which would flap
-          screen-reader output and break Playwright's strict locator rules).
-        -->
-        <PatternPicker
-          {patterns}
-          onInserted={(id, yaml) => editor.notifyInserted(id, yaml)}
-        />
-      </div>
-    </div>
-  </section>
-</main>
+  </aside>
+</section>

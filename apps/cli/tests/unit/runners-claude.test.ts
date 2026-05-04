@@ -215,6 +215,26 @@ test('with.resume / with.session_id pass through as resume/sessionId SDK options
   expect(opts.resumeSessionAt).toBe('msg-uuid');
 });
 
+test('null and undefined with options are omitted before calling the SDK', async () => {
+  const captured: Captured[] = [];
+  const fake = makeFakeQuery({ text: 'ok', capture: captured });
+  const ctx = new ExecutionContext({});
+  await new ClaudeRunner(fake).run(ctx, {
+    call: 'claude',
+    with: {
+      prompt: 'continue',
+      resume: null,
+      session_id: undefined,
+      max_turns: 3,
+    },
+  });
+  const opts = captured[0]?.options;
+  expect(opts).toBeDefined();
+  expect('resume' in opts).toBe(false);
+  expect('sessionId' in opts).toBe(false);
+  expect(opts.maxTurns).toBe(3);
+});
+
 test('tool_result with array content is flattened to concatenated text', async () => {
   const fake = createStrictQuery(() =>
     (async function* () {

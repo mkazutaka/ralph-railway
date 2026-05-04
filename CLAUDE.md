@@ -1,5 +1,7 @@
 ## Workflow Orchestration
 
+use skill as much as possible
+
 ### 1. Plan Node Default
 - Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
 - If something goes sideways, STOP and re-plan immediately - don't keep pushing

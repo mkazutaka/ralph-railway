@@ -1,0 +1,174 @@
+document:
+  dsl: "1.0.3"
+  namespace: ralph
+  name: implement
+  version: "0.1.0"
+  title: "DMMFシナリオごとに Web Backend / Frontend / E2E を実装し、レビューが APPROVED になるまでループする"
+
+do:
+  - plan_scenarios:
+      call: claude
+      with:
+        prompt: |
+          引数 <ARGUMENTS> はシナリオのディレクトリまたは単一ファイルのパスです。
+          対象シナリオを列挙し、実装計画を docs/tasks/plan.md に書いて。
+
+          docs/tasks/plan.md は次の形式:
+
+          ```
+          # Implement Plan
+
+          ## Scenarios
+          - [ ] <scenario-path-1>
+          - [ ] <scenario-path-2>
+          ...
+          ```
+
+          すでに docs/tasks/plan.md が存在する場合は上書きせず、未チェック項目を維持する。
+          末尾に対象シナリオの絶対パス一覧を改行区切りで出力せよ
+          （後続ステップで使う）。実装はまだ行わない。
+
+  - extract_pending:
+      run:
+        shell:
+          command: |
+            mkdir -p docs/tasks
+            grep -E '^- \[ \]' docs/tasks/plan.md | sed -E 's/^- \[ \] //' | tr -d '\r'
+
+  - per_scenario:
+      for:
+        each: scenario
+        in: ${ .output.extract_pending.stdout | split("\n") | map(select(length > 0)) }
+      do:
+        - reset_review:
+            run:
+              shell:
+                command: "mkdir -p .temp && rm -f docs/tasks/review-*.md 2>/dev/null || true"
+
+        - aggregate_review:
+            set:
+              stdout: "<promise>CONTINUE</promise>"
+
+        - implement_loop:
+            for:
+              each: tick
+              in: ${ [range(1; 100)] }
+            while: ${ ((.output.aggregate_review.stdout // "") | contains("<promise>COMPLETE</promise>")) | not }
+            do:
+              - check_backend_approved:
+                  run:
+                    shell:
+                      command: |
+                        if [ -f docs/tasks/review-backend.md ] && grep -q '<promise>APPROVED</promise>' docs/tasks/review-backend.md; then
+                          echo "APPROVED"
+                        else
+                          echo "PENDING"
+                        fi
+
+              - implement_backend:
+                  if: ${ (.output.check_backend_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    prompt: |
+                      `web-backend-implementer` サブエージェントを起動し、
+                      シナリオ ${ .var.scenario } に基づいた SvelteKit server routes /
+                      workflow / repository の実装を依頼せよ。
+                      docs/tasks/review-backend.md が存在する場合は内容を読み、指摘事項に対応してください。
+
+              - check_frontend_approved:
+                  run:
+                    shell:
+                      command: |
+                        if [ -f docs/tasks/review-frontend.md ] && grep -q '<promise>APPROVED</promise>' docs/tasks/review-frontend.md; then
+                          echo "APPROVED"
+                        else
+                          echo "PENDING"
+                        fi
+
+              - implement_frontend:
+                  if: ${ (.output.check_frontend_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    prompt: |
+                      `web-frontend-implementer` サブエージェントを起動し、
+                      シナリオ ${ .var.scenario } のワークフローを呼び出す UI を
+                      Svelte 5 + shadcn-svelte で実装するよう依頼せよ。pencil MCPを使ってデザインファイル（apps/web/design/app.pen）を参考にせよ。
+                      docs/tasks/review-frontend.md が存在する場合は内容を読み、指摘事項に対応してください。
+
+              - check_e2e_approved:
+                  run:
+                    shell:
+                      command: |
+                        if [ -f docs/tasks/review-e2e.md ] && grep -q '<promise>APPROVED</promise>' docs/tasks/review-e2e.md; then
+                          echo "APPROVED"
+                        else
+                          echo "PENDING"
+                        fi
+
+              - implement_e2e:
+                  if: ${ (.output.check_e2e_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    prompt: |
+                      `e2e-implementor` サブエージェントを起動し、
+                      シナリオ ${ .var.scenario } のユーザストーリーに沿ったE2Eテストを Playwright で実装するよう依頼せよ。正常系と主要なエラー系をカバーすること。
+                      docs/tasks/review-e2e.md が存在する場合は内容を読み、指摘事項に対応してください。
+                      実装後、`cd apps/web && bun run test:e2e` を実行し、失敗があれば修正してパスするまで反復すること。最終ログは docs/tasks/e2e.log に保存せよ。
+
+              - review_backend:
+                  if: ${ (.output.check_backend_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    prompt: |
+                      `web-backend-reviewer` サブエージェントを起動し、
+                      シナリオ ${ .var.scenario } に対する web-backend を
+                      品質・セキュリティ・シナリオ準拠でレビューさせ、結果を
+                      docs/tasks/review-backend.md に書かせよ。
+                      末尾に <promise>APPROVED</promise> または
+                      <promise>CHANGES_REQUESTED</promise> を出力させること。
+
+              - review_frontend:
+                  if: ${ (.output.check_frontend_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    prompt: |
+                      `web-frontend-reviewer` サブエージェントを起動し、
+                      シナリオ ${ .var.scenario } に対する web-frontend を
+                      アーキテクチャ・品質・デザイン整合でレビューさせ、結果を
+                      docs/tasks/review-frontend.md に書かせよ。
+                      末尾に <promise>APPROVED</promise> または
+                      <promise>CHANGES_REQUESTED</promise> を出力させること。
+
+              - review_e2e:
+                  if: ${ (.output.check_e2e_approved.stdout // "") | contains("APPROVED") | not }
+                  call: claude
+                  with:
+                    prompt: |
+                      `e2e-reviewer` サブエージェントを起動し、
+                      シナリオ ${ .var.scenario } に対する E2E を品質・
+                      テスト網羅・セキュリティでレビューさせ、結果を
+                      docs/tasks/review-e2e.md に書かせよ。
+                      末尾に <promise>APPROVED</promise> または
+                      <promise>CHANGES_REQUESTED</promise> を出力させること。
+
+              - aggregate_review:
+                  run:
+                    shell:
+                      command: |
+                        approved=0
+                        for f in docs/tasks/review-backend.md docs/tasks/review-frontend.md docs/tasks/review-e2e.md; do
+                          if [ -f "$f" ] && grep -q '<promise>APPROVED</promise>' "$f"; then
+                            approved=$((approved+1))
+                          fi
+                        done
+                        if [ "$approved" -eq 3 ]; then
+                          echo "<promise>COMPLETE</promise>"
+                        else
+                          echo "<promise>CONTINUE</promise>"
+                        fi
+
+        - mark_done:
+            run:
+              shell:
+                command: |
+                  sed -i.bak -E "s|^- \[ \] ${ .var.scenario }$|- [x] ${ .var.scenario }|" docs/tasks/plan.md

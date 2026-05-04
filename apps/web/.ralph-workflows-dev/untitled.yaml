@@ -16,3 +16,7 @@ do:
       run:
         shell:
           command: echo guarded
+  - sample_step_2:
+      run:
+        shell:
+          command: echo hello
