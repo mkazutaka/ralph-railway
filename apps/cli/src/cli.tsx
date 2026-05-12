@@ -14,7 +14,7 @@ import { Engine } from './engine/executor';
 import { loadWorkflow, parseWorkflow, type Workflow } from './io';
 import { App } from './ui/App';
 import { Header } from './ui/Header';
-import { EngineStore } from './ui/useEngineState';
+import { EngineStore } from './ui/hooks/useEngineState';
 import { listWorkflows, resolveWorkflow, workflowSearchDirs } from './workflow-paths';
 
 const VERSION = '0.0.1';

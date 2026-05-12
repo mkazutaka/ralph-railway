@@ -1,4 +1,5 @@
 import type { Specification } from '@serverlessworkflow/sdk';
+import { uuidv7 } from 'uuidv7';
 import { getRunner } from '../runners/base';
 // Ensure built-in runners register at Engine import time.
 import '../runners/set';
@@ -16,6 +17,9 @@ import { Jump } from './jumps';
 import { type NormalizedTask, normalizeTaskList } from './tasks';
 
 const JUMP_KEYWORDS = new Set(['exit', 'end', 'continue']);
+
+// UUIDv7: monotonic (Unix-millis prefix) so string-sorted ids preserve emit order.
+const nextTaskId = (): string => uuidv7();
 
 interface RetryCfg {
   initialDelayMs: number;
@@ -143,18 +147,25 @@ export class Engine {
     if (task.body.if != null) {
       const cond = await ctx.evalStr(task.body.if);
       if (!cond) {
-        this.bus.emit({ kind: 'task:skip', path: taskPath, taskKind: task.kind });
+        this.bus.emit({
+          kind: 'task:skip',
+          path: taskPath,
+          taskKind: task.kind,
+          taskId: nextTaskId(),
+        });
         return null;
       }
     }
     const startedAt = Date.now();
-    this.bus.emit({ kind: 'task:start', path: taskPath, taskKind: task.kind });
+    const taskId = nextTaskId();
+    this.bus.emit({ kind: 'task:start', path: taskPath, taskKind: task.kind, taskId });
     try {
-      const output = await this.dispatchTask(task, ctx, taskPath);
+      const output = await this.dispatchTask(task, ctx, taskPath, taskId);
       this.bus.emit({
         kind: 'task:end',
         path: taskPath,
         taskKind: task.kind,
+        taskId,
         durationMs: Date.now() - startedAt,
         output: output instanceof Jump ? undefined : output,
       });
@@ -164,6 +175,7 @@ export class Engine {
         kind: 'task:error',
         path: taskPath,
         taskKind: task.kind,
+        taskId,
         message: (err as Error).message,
       });
       throw err;
@@ -174,6 +186,7 @@ export class Engine {
     task: NormalizedTask,
     ctx: ExecutionContext,
     taskPath: TaskPath,
+    taskId: string,
   ): Promise<unknown> {
     switch (task.kind) {
       case 'set':
@@ -184,18 +197,28 @@ export class Engine {
         // we don't pollute sibling tasks in the same ctx.
         const prev = ctx.claudeEmit;
         ctx.claudeEmit = {
-          text: (text) => this.bus.emit({ kind: 'claude:text', path: taskPath, text }),
-          thinking: (text) => this.bus.emit({ kind: 'claude:thinking', path: taskPath, text }),
-          toolUse: (toolUseId, name, input) =>
-            this.bus.emit({ kind: 'claude:tool_use', path: taskPath, toolUseId, name, input }),
-          toolResult: (toolUseId, content, isError) =>
+          text: (text) => this.bus.emit({ kind: 'claude:text', path: taskPath, taskId, text }),
+          thinking: (text) =>
+            this.bus.emit({ kind: 'claude:thinking', path: taskPath, taskId, text }),
+          toolUse: (activityId, name, input) =>
+            this.bus.emit({
+              kind: 'claude:tool_use',
+              path: taskPath,
+              taskId,
+              activityId,
+              name,
+              input,
+            }),
+          toolResult: (activityId, content, isError) =>
             this.bus.emit({
               kind: 'claude:tool_result',
               path: taskPath,
-              toolUseId,
+              taskId,
+              activityId,
               content,
               isError,
             }),
+          end: () => this.bus.emit({ kind: 'claude:end', path: taskPath, taskId }),
         };
         let output: unknown;
         try {
@@ -210,8 +233,9 @@ export class Engine {
         const runner = getRunner('run');
         const prev = ctx.shellEmit;
         ctx.shellEmit = {
-          stdout: (chunk) => this.bus.emit({ kind: 'shell:stdout', path: taskPath, chunk }),
-          stderr: (chunk) => this.bus.emit({ kind: 'shell:stderr', path: taskPath, chunk }),
+          stdout: (chunk) => this.bus.emit({ kind: 'shell:stdout', path: taskPath, taskId, chunk }),
+          stderr: (chunk) => this.bus.emit({ kind: 'shell:stderr', path: taskPath, taskId, chunk }),
+          end: () => this.bus.emit({ kind: 'shell:end', path: taskPath, taskId }),
         };
         let output: unknown;
         try {
@@ -226,7 +250,7 @@ export class Engine {
         await this.runTaskList(normalizeTaskList(task.body.do), ctx, taskPath);
         return null;
       case 'for':
-        return this.runFor(task, ctx, taskPath);
+        return this.runFor(task, ctx, taskPath, taskId);
       case 'switch':
         return this.runSwitch(task, ctx);
       case 'fork':
@@ -236,7 +260,12 @@ export class Engine {
     }
   }
 
-  private async runFor(task: NormalizedTask, ctx: ExecutionContext, path: TaskPath): Promise<void> {
+  private async runFor(
+    task: NormalizedTask,
+    ctx: ExecutionContext,
+    path: TaskPath,
+    taskId: string,
+  ): Promise<void> {
     const spec = task.body.for;
     const each = spec.each as string | undefined;
     const at = spec.at as string | undefined;
@@ -261,8 +290,21 @@ export class Engine {
       // SLW v1.0.3: `while` is a continuation condition evaluated before each
       // iteration. When it becomes falsy the loop exits (the iteration is skipped).
       if (whileExpr != null && !(await iter.evalStr(whileExpr))) return;
-      this.bus.emit({ kind: 'iteration:start', path, index: i, total: items.length });
+      this.bus.emit({
+        kind: 'iteration:start',
+        path,
+        taskId,
+        index: i,
+        total: items.length,
+      });
       await this.runTaskList(body, iter, path);
+      this.bus.emit({
+        kind: 'iteration:end',
+        path,
+        taskId,
+        index: i,
+        total: items.length,
+      });
     }
   }
 

@@ -17,7 +17,8 @@
     "test": "bun run cli:test && bun run web:test",
     "lint": "bun run cli:lint",
     "typecheck": "bun run cli:typecheck && bun run web:check",
-    "check": "bun run lint && bun run typecheck && bun run test"
+    "check": "bun run lint && bun run typecheck && bun run test",
+    "cli:local:install": "bun run cli:build && cd apps/cli && pkg=$(npm pack --silent) && npm install -g \"$PWD/$pkg\" && rm -f \"$pkg\""
   },
   "devDependencies": {},
   "engines": {

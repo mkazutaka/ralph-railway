@@ -1,7 +1,7 @@
 import { Text } from 'ink';
 import type { ReactElement } from 'react';
-import { glyph, theme } from '../theme';
-import { useBlink } from '../useBlink';
+import { useBlink } from '../hooks/useBlink';
+import { glyph, theme } from '../utils/theme';
 
 /**
  * The claude-code-style ToolUseLoader dot: blue & blinking while running,

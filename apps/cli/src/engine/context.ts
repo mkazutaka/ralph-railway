@@ -15,8 +15,9 @@ export interface ContextInit {
 export interface ClaudeEmitHooks {
   text?: (text: string) => void;
   thinking?: (text: string) => void;
-  toolUse?: (toolUseId: string, name: string, input: Record<string, unknown>) => void;
-  toolResult?: (toolUseId: string, content: string, isError: boolean) => void;
+  toolUse?: (activityId: string, name: string, input: Record<string, unknown>) => void;
+  toolResult?: (activityId: string, content: string, isError: boolean) => void;
+  end?: () => void;
 }
 
 /**
@@ -27,6 +28,7 @@ export interface ClaudeEmitHooks {
 export interface ShellEmitHooks {
   stdout?: (chunk: string) => void;
   stderr?: (chunk: string) => void;
+  end?: () => void;
 }
 
 export class ExecutionContext {

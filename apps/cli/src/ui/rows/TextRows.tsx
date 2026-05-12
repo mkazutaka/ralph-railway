@@ -1,8 +1,7 @@
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
-import { glyph, theme } from '../theme';
-import { textLastLines } from '../toolDisplay';
-import type { LogEntry } from '../useEngineState';
+import type { LogEntry } from '../hooks/useEngineState';
+import { glyph, theme } from '../utils/theme';
 import { MAX_LINE_COLS } from './constants';
 
 type TextEntry = Extract<LogEntry, { kind: 'text' }>;
@@ -52,8 +51,20 @@ export function ShellStderrRow({ entry }: { entry: ShellStderrEntry }): ReactEle
   );
 }
 
+// Last N non-empty lines, each clamped to maxCols, so multi-line reasoning
+// stays readable instead of being crushed into one line.
+function lastLines(text: string, maxLines: number, maxCols: number): string[] {
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines
+    .slice(-maxLines)
+    .map((l) => (l.length > maxCols ? `${l.slice(0, maxCols - 1)}…` : l));
+}
+
 export function ThinkingRow({ entry }: { entry: ThinkingEntry }): ReactElement {
-  const lines = textLastLines(entry.text, 6, MAX_LINE_COLS);
+  const lines = lastLines(entry.text, 6, MAX_LINE_COLS);
   return (
     <Box flexDirection="column">
       {lines.map((line, idx) => (

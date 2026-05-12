@@ -1,26 +1,56 @@
 export type TaskPath = ReadonlyArray<string>;
 
 export type EngineEvent =
-  | { kind: 'task:start'; path: TaskPath; taskKind: string }
-  | { kind: 'task:end'; path: TaskPath; taskKind: string; durationMs: number; output?: unknown }
-  | { kind: 'task:error'; path: TaskPath; taskKind: string; message: string }
-  | { kind: 'task:skip'; path: TaskPath; taskKind: string }
-  | { kind: 'iteration:start'; path: TaskPath; index: number; total: number | null }
-  | { kind: 'claude:text'; path: TaskPath; text: string }
-  | { kind: 'claude:thinking'; path: TaskPath; text: string }
-  | { kind: 'shell:stdout'; path: TaskPath; chunk: string }
-  | { kind: 'shell:stderr'; path: TaskPath; chunk: string }
+  | { kind: 'task:start'; path: TaskPath; taskKind: string; taskId: string }
+  | {
+      kind: 'task:end';
+      path: TaskPath;
+      taskKind: string;
+      taskId: string;
+      durationMs: number;
+      output?: unknown;
+    }
+  | {
+      kind: 'task:error';
+      path: TaskPath;
+      taskKind: string;
+      taskId: string;
+      message: string;
+    }
+  | { kind: 'task:skip'; path: TaskPath; taskKind: string; taskId: string }
+  | {
+      kind: 'iteration:start';
+      path: TaskPath;
+      taskId: string;
+      index: number;
+      total: number | null;
+    }
+  | {
+      kind: 'iteration:end';
+      path: TaskPath;
+      taskId: string;
+      index: number;
+      total: number | null;
+    }
+  | { kind: 'claude:text'; path: TaskPath; taskId: string; text: string }
+  | { kind: 'claude:thinking'; path: TaskPath; taskId: string; text: string }
+  | { kind: 'claude:end'; path: TaskPath; taskId: string }
+  | { kind: 'shell:stdout'; path: TaskPath; taskId: string; chunk: string }
+  | { kind: 'shell:stderr'; path: TaskPath; taskId: string; chunk: string }
+  | { kind: 'shell:end'; path: TaskPath; taskId: string }
   | {
       kind: 'claude:tool_use';
       path: TaskPath;
-      toolUseId: string;
+      taskId: string;
+      activityId: string;
       name: string;
       input: Record<string, unknown>;
     }
   | {
       kind: 'claude:tool_result';
       path: TaskPath;
-      toolUseId: string;
+      taskId: string;
+      activityId: string;
       content: string;
       isError: boolean;
     };

@@ -33,6 +33,19 @@ test('emits task:start + task:end in order for two set tasks', async () => {
   for (const e of ends) {
     if (e.kind === 'task:end') expect(typeof e.durationMs).toBe('number');
   }
+
+  // Each task instance gets a unique id, and start/end share theirs.
+  if (starts[0]?.kind === 'task:start' && ends[0]?.kind === 'task:end') {
+    expect(starts[0].taskId).toBe(ends[0].taskId);
+  }
+  if (
+    starts[0]?.kind === 'task:start' &&
+    starts[1]?.kind === 'task:start' &&
+    ends[1]?.kind === 'task:end'
+  ) {
+    expect(starts[1].taskId).toBe(ends[1].taskId);
+    expect(starts[0].taskId).not.toBe(starts[1].taskId);
+  }
 });
 
 test('for-loop emits iteration:start events with 0..n-1 indices', async () => {
