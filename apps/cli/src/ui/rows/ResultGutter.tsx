@@ -1,6 +1,6 @@
 import { Box, type BoxProps, Text } from 'ink';
 import type { ReactElement, ReactNode } from 'react';
-import { glyph, theme } from '../theme';
+import { glyph, theme } from '../utils/theme';
 
 /**
  * Two-column layout with the dim `⎿` gutter on the left and wrapping content

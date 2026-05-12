@@ -1,8 +1,8 @@
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
-import { formatDuration, wrapLines } from '../format';
-import { glyph, theme } from '../theme';
-import type { LogEntry } from '../useEngineState';
+import type { LogEntry } from '../hooks/useEngineState';
+import { formatDuration, wrapLines } from '../utils/format';
+import { glyph, theme } from '../utils/theme';
 import { MAX_LINE_COLS } from './constants';
 
 type TaskStartEntry = Extract<LogEntry, { kind: 'task-start' }>;

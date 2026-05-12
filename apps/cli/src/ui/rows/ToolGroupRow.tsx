@@ -1,8 +1,8 @@
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
-import { theme } from '../theme';
-import { inputPreview } from '../toolDisplay';
-import type { LogEntry } from '../useEngineState';
+import type { LogEntry } from '../hooks/useEngineState';
+import { theme } from '../utils/theme';
+import { inputPreview } from '../utils/toolDisplay';
 import { ResultGutter } from './ResultGutter';
 import { RunningDot } from './RunningDot';
 
@@ -32,7 +32,7 @@ export function ToolGroupRow({
   errored: boolean;
 }): ReactElement {
   const total = group.uses.length;
-  const done = group.uses.filter((u) => group.results.has(u.toolUseId)).length;
+  const done = group.uses.filter((u) => group.results.has(u.activityId)).length;
   const header = running
     ? `Reading ${total} ${total === 1 ? 'file' : 'files'}…`
     : `Read ${total} ${total === 1 ? 'file' : 'files'}`;
@@ -46,7 +46,7 @@ export function ToolGroupRow({
       </Box>
       <ResultGutter>
         {group.uses.map((u) => (
-          <Text key={`rd-${u.toolUseId}`} color={theme.dim}>
+          <Text key={`rd-${u.activityId}`} color={theme.dim}>
             {fileLabel(u)}
           </Text>
         ))}

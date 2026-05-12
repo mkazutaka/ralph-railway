@@ -88,6 +88,7 @@ async function runShell(ctx: ExecutionContext, shellCfg: unknown): Promise<RunSh
       if (tailOut) ctx.shellEmit.stdout?.(tailOut);
       const tailErr = stderrDecoder.end();
       if (tailErr) ctx.shellEmit.stderr?.(tailErr);
+      ctx.shellEmit.end?.();
       // Mirror shell convention: a signal-terminated process reports 128 + N.
       const finalCode = code ?? (signal ? 128 : 1);
       resolve({

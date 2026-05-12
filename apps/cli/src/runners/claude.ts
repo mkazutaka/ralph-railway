@@ -104,6 +104,8 @@ export class ClaudeRunner implements TaskRunner {
       }
     }
 
+    ctx.claudeEmit.end?.();
+
     if (!resultMsg) {
       throw new Error('call: claude stream ended without a result message');
     }

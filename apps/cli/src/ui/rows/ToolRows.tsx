@@ -1,10 +1,10 @@
 import type { StructuredPatchHunk } from 'diff';
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
-import { truncate, wrapLines } from '../format';
-import { theme } from '../theme';
-import { inputPreview } from '../toolDisplay';
-import type { LogEntry } from '../useEngineState';
+import type { LogEntry } from '../hooks/useEngineState';
+import { truncate, wrapLines } from '../utils/format';
+import { theme } from '../utils/theme';
+import { inputPreview } from '../utils/toolDisplay';
 import { MAX_LINE_COLS, MAX_RESULT_LINES, RESULT_WRAP_COLS } from './constants';
 import { EditDiffRow } from './EditDiffRow';
 import { ResultGutter } from './ResultGutter';

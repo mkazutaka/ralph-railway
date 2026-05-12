@@ -24,18 +24,3 @@ export function inputPreview(name: string, input: Record<string, unknown>): stri
       return Object.keys(input).length > 0 ? JSON.stringify(input).slice(0, 80) : '';
   }
 }
-
-/**
- * Split text into the last N non-empty lines, each clamped to maxCols chars.
- * Preserves line breaks so multi-line reasoning (thinking blocks) stays
- * readable instead of being crushed into one line.
- */
-export function textLastLines(text: string, maxLines = 4, maxCols = 120): string[] {
-  const lines = text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  return lines
-    .slice(-maxLines)
-    .map((l) => (l.length > maxCols ? `${l.slice(0, maxCols - 1)}…` : l));
-}

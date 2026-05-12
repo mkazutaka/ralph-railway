@@ -1,25 +1,21 @@
-// src/ui/PinnedFooter.tsx
 import { Box, Text } from 'ink';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
-import { formatElapsed, truncate } from './format';
-import { theme } from './theme';
-import { trainLine } from './train';
-import type { State } from './useEngineState';
+import type { RunningTask, State } from './hooks/useEngineState';
+import { TrainLine } from './TrainLine';
+import { formatElapsed, truncate } from './utils/format';
+import { theme } from './utils/theme';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 const TICK_MS = 200;
 
-// Disambiguate same-leaf-name siblings under different parents.
-function leafLabel(key: string): string {
-  const parts = key.split('>');
-  if (parts.length <= 1) return key;
-  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+function leafLabel(task: RunningTask): string {
+  return task.name;
 }
 
 // Single footer-level tick drives both spinner frame and train phase. Nothing
 // already committed to stdout history re-renders when `now` updates.
-export function PinnedFooter({ state }: { state: State }): ReactElement {
+export function Footer({ state }: { state: State }): ReactElement {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -27,15 +23,12 @@ export function PinnedFooter({ state }: { state: State }): ReactElement {
   }, []);
 
   const frame = Math.floor(now / TICK_MS) % SPINNER_FRAMES.length;
-  const inFlight = state.runningPaths.length;
+  const inFlight = state.runningTasks.length;
   const elapsed = formatElapsed(now - state.startedAt);
-  // `runningPaths` is mutated in place by the reducer; the array reference is
-  // stable so we depend on `state.revision` to re-memo on engine events. The
-  // 200ms spinner tick only changes `now` and skips this memo.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision tracks in-place mutations of runningPaths
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision tracks in-place mutations of runningTasks
   const namesLine = useMemo(
-    () => (inFlight > 0 ? truncate(state.runningPaths.map(leafLabel).join(' · '), 120) : null),
-    [inFlight, state.runningPaths, state.revision],
+    () => (inFlight > 0 ? truncate(state.runningTasks.map(leafLabel).join(' · '), 120) : null),
+    [inFlight, state.runningTasks, state.revision],
   );
 
   return (
@@ -48,7 +41,7 @@ export function PinnedFooter({ state }: { state: State }): ReactElement {
         </Box>
       ) : null}
       <Box>
-        <Text color={theme.accent}>{trainLine(now)}</Text>
+        <TrainLine />
       </Box>
       <Box>
         <Text color={theme.dim}>

@@ -73,7 +73,7 @@ export function assistantMessage(content: AssistantContent): SDKAssistantMessage
 }
 
 export function userToolResultMessage(
-  toolUseId: string,
+  activityId: string,
   content: ToolResultBlockParam['content'],
   isError = false,
 ): SDKUserMessage {
@@ -84,7 +84,7 @@ export function userToolResultMessage(
       content: [
         {
           type: 'tool_result',
-          tool_use_id: toolUseId,
+          tool_use_id: activityId,
           content,
           is_error: isError,
         },

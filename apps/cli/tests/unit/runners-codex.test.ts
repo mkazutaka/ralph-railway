@@ -79,7 +79,6 @@ test('returns final response, thread id, usage, and completed items', async () =
   expect(out.finalResponse).toBe('hello from codex');
   expect(out.threadId).toBe('thread-123');
   expect(out.usage?.input_tokens).toBe(10);
-  expect(out.items).toHaveLength(1);
 });
 
 test('snake_case YAML keys map to Codex client, thread, and turn options', async () => {

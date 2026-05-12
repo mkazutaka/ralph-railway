@@ -1,357 +1,293 @@
-// tests/unit/ui-state.test.ts
 import { expect, test } from 'bun:test';
 import type { EngineEvent } from '../../src/engine/events';
-import { splitAtLiveBoundary } from '../../src/ui/renderItems';
-import {
-  EngineStore,
-  initialState,
-  type LogEntry,
-  reducer,
-  type State,
-} from '../../src/ui/useEngineState';
+import { EngineStore, type LogEntry } from '../../src/ui/hooks/useEngineState';
 
-function apply(state: State, events: EngineEvent[]): State {
-  return events.reduce<State>((s, e) => reducer(s, e), state);
+interface Recorded {
+  store: EngineStore;
+  written: LogEntry[][];
 }
 
-function kinds(entries: LogEntry[]): string[] {
-  return entries.map((e) => e.kind);
+function makeStore(): Recorded {
+  const written: LogEntry[][] = [];
+  const store = new EngineStore(0);
+  store.setStdOutWrite((entries) => {
+    written.push(entries);
+  });
+  return { store, written };
 }
 
-/**
- * Group `state.pending` into the entries belonging to the task identified by
- * `key` (a `>`-joined path). The flat-pending refactor dropped the old
- * `liveTasks` map, so this helper recreates the per-task slice tests assert
- * against by filtering on the depth implied by the key's path length. Tests
- * use unique task names per depth, so depth alone disambiguates here.
- */
-function taskEntries(state: State, key: string): LogEntry[] {
-  const depth = Math.max(0, key.split('>').length - 1);
-  return state.pending.filter((e) => e.depth === depth);
+function dispatch(rec: Recorded, events: EngineEvent[]): void {
+  for (const e of events) rec.store.dispatch(e);
 }
 
-test('task:skip creates a one-shot live entry without touching runningPaths/totalTasks', () => {
-  const s = apply(initialState(0), [{ kind: 'task:skip', path: ['gated'], taskKind: 'set' }]);
-  const entries = taskEntries(s, 'gated');
-  expect(kinds(entries)).toEqual(['task-skip']);
-  const e = entries[0];
-  if (e?.kind === 'task-skip') {
-    expect(e.name).toBe('gated');
-    expect(e.depth).toBe(0);
-  }
-  expect(s.runningPaths).toEqual([]);
-  expect(s.totalTasks).toBe(0);
+function kinds(written: LogEntry[][]): string[] {
+  return written.flat().map((e) => e.kind);
+}
+
+test('task:start writes task-start row and pushes onto runningTasks', () => {
+  const rec = makeStore();
+  dispatch(rec, [{ kind: 'task:start', path: ['a'], taskKind: 'set', taskId: 't1' }]);
+  expect(kinds(rec.written)).toEqual(['task-start']);
+  expect(rec.store.state.runningTasks).toHaveLength(1);
+  expect(rec.store.state.runningTasks[0]?.name).toBe('a');
+  expect(rec.store.state.totalTasks).toBe(1);
 });
 
-test('task:start opens a task with depth and tracks runningPaths', () => {
-  const s = apply(initialState(0), [{ kind: 'task:start', path: ['a'], taskKind: 'set' }]);
-  const entries = taskEntries(s, 'a');
-  expect(kinds(entries)).toEqual(['task-start']);
-  const e = entries[0];
-  if (e?.kind === 'task-start') {
-    expect(e.name).toBe('a');
-    expect(e.depth).toBe(0);
-    expect(e.taskKind).toBe('set');
-  }
-  expect(s.runningPaths).toEqual(['a']);
-  expect(s.totalTasks).toBe(1);
-});
-
-test('task:start strips #N suffix from name', () => {
-  const s = apply(initialState(0), [{ kind: 'task:start', path: ['greet#2'], taskKind: 'call' }]);
-  const entries = taskEntries(s, 'greet#2');
-  const e = entries[0];
-  if (e?.kind === 'task-start') expect(e.name).toBe('greet');
-});
-
-test('task:end appends task-end with duration/cost/tools and removes from runningPaths', () => {
-  const s = apply(initialState(1000), [
-    { kind: 'task:start', path: ['a'], taskKind: 'call' },
+test('task:end writes task-end row and removes the task from runningTasks', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['a'], taskKind: 'call', taskId: 't1' },
     {
       kind: 'task:end',
       path: ['a'],
       taskKind: 'call',
+      taskId: 't1',
       durationMs: 0,
       output: { totalCostUsd: 0.012, toolsUsed: ['Bash', 'Read', 'Read'] },
     },
   ]);
-  const entries = taskEntries(s, 'a');
-  expect(kinds(entries)).toEqual(['task-start', 'task-end']);
-  const end = entries[1];
+  expect(kinds(rec.written)).toEqual(['task-start', 'task-end']);
+  expect(rec.store.state.runningTasks).toHaveLength(0);
+  expect(rec.store.state.completedTasks).toBe(1);
+  expect(rec.store.state.costUsd).toBeCloseTo(0.012, 5);
+  const end = rec.written[1]?.[0];
   if (end?.kind === 'task-end') {
-    expect(end.name).toBe('a');
-    expect(end.depth).toBe(0);
-    expect(end.costUsd).toBeCloseTo(0.012, 5);
     expect(end.toolsCount).toBe(3);
-    expect(end.durationMs).toBeGreaterThanOrEqual(0);
-  }
-  expect(s.runningPaths).toEqual([]);
-  expect(s.costUsd).toBeCloseTo(0.012, 5);
-  expect(s.completedTasks).toBe(1);
-});
-
-test('task:error appends task-error with full message and removes from runningPaths', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['x'], taskKind: 'call' },
-    { kind: 'task:error', path: ['x'], taskKind: 'call', message: 'line one\nline two' },
-  ]);
-  const entries = taskEntries(s, 'x');
-  const last = entries[entries.length - 1];
-  expect(last?.kind).toBe('task-error');
-  if (last?.kind === 'task-error') {
-    expect(last.name).toBe('x');
-    expect(last.message).toBe('line one\nline two');
-  }
-  expect(s.runningPaths).toEqual([]);
-  expect(s.erroredTasks).toBe(1);
-});
-
-test('completed task entries are committable via splitAtLiveBoundary', () => {
-  const store = new EngineStore(0);
-  store.dispatch({ kind: 'task:start', path: ['ok'], taskKind: 'set' });
-  store.dispatch({ kind: 'task:end', path: ['ok'], taskKind: 'set', durationMs: 0 });
-
-  const before = store.state.revision;
-  const { commitEntryCount } = splitAtLiveBoundary(store.state.pending);
-
-  expect(commitEntryCount).toBe(2);
-  expect(before).toBeGreaterThan(0);
-  expect(store.state.completedTasks).toBe(1);
-  expect(store.state.totalTasks).toBe(1);
-
-  // Mirror App.tsx's commit step so the next split sees an empty buffer.
-  store.state.pending.splice(0, commitEntryCount);
-  expect(splitAtLiveBoundary(store.state.pending).commitEntryCount).toBe(0);
-});
-
-test('iteration:start appends an "iteration" entry with 1-indexed display values', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['loop'], taskKind: 'for' },
-    { kind: 'iteration:start', path: ['loop'], index: 0, total: 3 },
-    { kind: 'iteration:start', path: ['loop'], index: 1, total: 3 },
-  ]);
-  const entries = taskEntries(s, 'loop');
-  const it = entries.filter((e) => e.kind === 'iteration');
-  expect(it).toHaveLength(2);
-  if (it[0]?.kind === 'iteration') {
-    expect(it[0].displayIndex).toBe(1);
-    expect(it[0].total).toBe(3);
   }
 });
 
-test('consecutive claude:text chunks coalesce into a single text entry', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['ask'], taskKind: 'call' },
-    { kind: 'claude:text', path: ['ask'], text: 'hello ' },
-    { kind: 'claude:text', path: ['ask'], text: 'world' },
-    { kind: 'task:end', path: ['ask'], taskKind: 'call', durationMs: 0 },
+test('task:error removes the task from runningTasks and writes task-error', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['x'], taskKind: 'call', taskId: 'x1' },
+    {
+      kind: 'task:error',
+      path: ['x'],
+      taskKind: 'call',
+      taskId: 'x1',
+      message: 'boom',
+    },
   ]);
-  const entries = taskEntries(s, 'ask');
-  const text = entries.find((e) => e.kind === 'text');
-  expect(text?.kind).toBe('text');
-  if (text?.kind === 'text') expect(text.text).toBe('hello world');
+  expect(kinds(rec.written)).toEqual(['task-start', 'task-error']);
+  expect(rec.store.state.runningTasks).toHaveLength(0);
+  expect(rec.store.state.erroredTasks).toBe(1);
 });
 
-test('claude:text buffer flushes on tool_use boundary, in order', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['ask'], taskKind: 'call' },
-    { kind: 'claude:text', path: ['ask'], text: 'first ' },
+test('task:skip writes a one-shot task-skip row without changing runningTasks', () => {
+  const rec = makeStore();
+  dispatch(rec, [{ kind: 'task:skip', path: ['gated'], taskKind: 'set', taskId: 's1' }]);
+  expect(kinds(rec.written)).toEqual(['task-skip']);
+  expect(rec.store.state.runningTasks).toHaveLength(0);
+  expect(rec.store.state.totalTasks).toBe(0);
+});
+
+test('iteration:start writes a row; iteration:end is silent (no row)', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['loop'], taskKind: 'for', taskId: 'L1' },
+    { kind: 'iteration:start', path: ['loop'], taskId: 'L1', index: 0, total: 3 },
+    { kind: 'iteration:end', path: ['loop'], taskId: 'L1', index: 0, total: 3 },
+  ]);
+  expect(kinds(rec.written)).toEqual(['task-start', 'iteration']);
+});
+
+test('claude:text chunks coalesce, then flush on tool_use boundary', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['ask'], taskKind: 'call', taskId: 'a1' },
+    { kind: 'claude:text', path: ['ask'], taskId: 'a1', text: 'hello ' },
+    { kind: 'claude:text', path: ['ask'], taskId: 'a1', text: 'world' },
     {
       kind: 'claude:tool_use',
       path: ['ask'],
-      toolUseId: 't1',
+      taskId: 'a1',
+      activityId: 't1',
       name: 'Bash',
       input: { command: 'ls' },
     },
-    { kind: 'claude:text', path: ['ask'], text: 'second' },
-    { kind: 'task:end', path: ['ask'], taskKind: 'call', durationMs: 0 },
   ]);
-  const entries = taskEntries(s, 'ask');
-  expect(kinds(entries)).toEqual(['task-start', 'text', 'tool-use', 'text', 'task-end']);
-  const firstText = entries[1];
-  if (firstText?.kind === 'text') expect(firstText.text).toBe('first ');
+  // task-start, then coalesced text on tool_use boundary; tool-use stays in
+  // activities (no result yet) so isn't written.
+  expect(kinds(rec.written)).toEqual(['task-start', 'text']);
+  const txt = rec.written[1]?.[0];
+  if (txt?.kind === 'text') expect(txt.text).toBe('hello world');
+  const tools = rec.store.state.runningTasks[0]?.runningActivities.filter((a) => a.kind === 'tool');
+  expect(tools).toHaveLength(1);
 });
 
-test('claude:thinking chunks coalesce and flush like text', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['ask'], taskKind: 'call' },
-    { kind: 'claude:thinking', path: ['ask'], text: 'hmm' },
-    { kind: 'claude:thinking', path: ['ask'], text: '... still' },
-    { kind: 'claude:text', path: ['ask'], text: 'answer' },
-    { kind: 'task:end', path: ['ask'], taskKind: 'call', durationMs: 0 },
-  ]);
-  const entries = taskEntries(s, 'ask');
-  expect(kinds(entries)).toEqual(['task-start', 'thinking', 'text', 'task-end']);
-  const th = entries[1];
-  if (th?.kind === 'thinking') expect(th.text).toBe('hmm... still');
-});
-
-test('claude:tool_use appends tool-use; matching tool_result appends tool-result', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['ask'], taskKind: 'call' },
+test('non-Read tool: tool-use+result pair writes together when result arrives', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['ask'], taskKind: 'call', taskId: 'a1' },
     {
       kind: 'claude:tool_use',
       path: ['ask'],
-      toolUseId: 't1',
+      taskId: 'a1',
+      activityId: 't1',
       name: 'Bash',
-      input: { command: 'echo hi' },
+      input: { command: 'ls' },
     },
     {
       kind: 'claude:tool_result',
       path: ['ask'],
-      toolUseId: 't1',
-      content: 'hi\n',
+      taskId: 'a1',
+      activityId: 't1',
+      content: 'ok',
       isError: false,
     },
   ]);
-  const entries = taskEntries(s, 'ask');
-  expect(kinds(entries)).toEqual(['task-start', 'tool-use', 'tool-result']);
-  const tu = entries[1];
-  const tr = entries[2];
-  if (tu?.kind === 'tool-use') {
-    expect(tu.name).toBe('Bash');
-    expect(tu.input).toEqual({ command: 'echo hi' });
-    expect(tu.depth).toBe(0);
-  }
-  if (tr?.kind === 'tool-result') {
-    expect(tr.name).toBe('Bash');
-    expect(tr.content).toBe('hi\n');
-    expect(tr.isError).toBe(false);
-    expect(tr.depth).toBe(0);
-  }
+  // task-start was written immediately. tool-use stayed in activities
+  // until result arrived; the pair was then written together.
+  expect(kinds(rec.written)).toEqual(['task-start', 'tool-use', 'tool-result']);
+  const tools = rec.store.state.runningTasks[0]?.runningActivities.filter((a) => a.kind === 'tool');
+  expect(tools).toHaveLength(0);
 });
 
-test('orphan tool_result (no prior tool_use) renders with name "?"', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['ask'], taskKind: 'call' },
+test('Read tool grouping: consecutive Reads buffer until a non-Read terminator', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['ask'], taskKind: 'call', taskId: 'a1' },
+    {
+      kind: 'claude:tool_use',
+      path: ['ask'],
+      taskId: 'a1',
+      activityId: 'r1',
+      name: 'Read',
+      input: { file_path: 'a' },
+    },
+    {
+      kind: 'claude:tool_use',
+      path: ['ask'],
+      taskId: 'a1',
+      activityId: 'r2',
+      name: 'Read',
+      input: { file_path: 'b' },
+    },
     {
       kind: 'claude:tool_result',
       path: ['ask'],
-      toolUseId: 'orphan',
-      content: 'whoops',
-      isError: true,
+      taskId: 'a1',
+      activityId: 'r1',
+      content: 'a',
+      isError: false,
+    },
+    {
+      kind: 'claude:tool_result',
+      path: ['ask'],
+      taskId: 'a1',
+      activityId: 'r2',
+      content: 'b',
+      isError: false,
+    },
+    // Terminator: a non-Read tool-use flushes the Read group.
+    {
+      kind: 'claude:tool_use',
+      path: ['ask'],
+      taskId: 'a1',
+      activityId: 'b1',
+      name: 'Bash',
+      input: { command: 'ls' },
     },
   ]);
-  const entries = taskEntries(s, 'ask');
-  const last = entries[entries.length - 1];
-  if (last?.kind === 'tool-result') {
-    expect(last.name).toBe('?');
-    expect(last.isError).toBe(true);
-  }
+  // task-start, then the Read group flushed as a single chunk
+  // ([r1-use, r2-use, r1-result, r2-result]).
+  expect(rec.written).toHaveLength(2);
+  const groupChunk = rec.written[1];
+  expect(groupChunk?.filter((e) => e.kind === 'tool-use')).toHaveLength(2);
+  expect(groupChunk?.filter((e) => e.kind === 'tool-result')).toHaveLength(2);
 });
 
-test('depth reflects path length minus 1', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['loop'], taskKind: 'for' },
-    { kind: 'task:start', path: ['loop', 'step'], taskKind: 'set' },
-    { kind: 'task:end', path: ['loop', 'step'], taskKind: 'set', durationMs: 0 },
+test('Read group flushes at claude:end if no terminator arrived', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['ask'], taskKind: 'call', taskId: 'a1' },
+    {
+      kind: 'claude:tool_use',
+      path: ['ask'],
+      taskId: 'a1',
+      activityId: 'r1',
+      name: 'Read',
+      input: { file_path: 'a' },
+    },
+    {
+      kind: 'claude:tool_result',
+      path: ['ask'],
+      taskId: 'a1',
+      activityId: 'r1',
+      content: 'a',
+      isError: false,
+    },
+    { kind: 'claude:end', path: ['ask'], taskId: 'a1' },
+    { kind: 'task:end', path: ['ask'], taskKind: 'call', taskId: 'a1', durationMs: 0 },
   ]);
-  const outer = taskEntries(s, 'loop');
-  const inner = taskEntries(s, 'loop>step');
-  const outerStart = outer[0];
-  const innerStart = inner[0];
-  if (outerStart?.kind === 'task-start') expect(outerStart.depth).toBe(0);
-  if (innerStart?.kind === 'task-start') expect(innerStart.depth).toBe(1);
+  // Read group flushed at claude:end as a chunk of [use, result], then task-end.
+  expect(kinds(rec.written)).toEqual(['task-start', 'tool-use', 'tool-result', 'task-end']);
 });
 
-test('runningPaths preserves insertion order and removes finished tasks', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['a'], taskKind: 'call' },
-    { kind: 'task:start', path: ['b'], taskKind: 'call' },
-    { kind: 'task:start', path: ['c'], taskKind: 'call' },
-    { kind: 'task:end', path: ['b'], taskKind: 'call', durationMs: 0 },
+test('shell:stdout/stderr coalesce per-stream and flush on cross-stream switch + shell:end', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['sh'], taskKind: 'run', taskId: 's1' },
+    { kind: 'shell:stdout', path: ['sh'], taskId: 's1', chunk: 'line1\n' },
+    { kind: 'shell:stdout', path: ['sh'], taskId: 's1', chunk: 'line2\n' },
+    { kind: 'shell:stderr', path: ['sh'], taskId: 's1', chunk: 'warn\n' },
+    { kind: 'shell:end', path: ['sh'], taskId: 's1' },
+    { kind: 'task:end', path: ['sh'], taskKind: 'run', taskId: 's1', durationMs: 0 },
   ]);
-  expect(s.runningPaths).toEqual(['a', 'c']);
-});
-
-test('task:end flushes any pending text buffered before it', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['ask'], taskKind: 'call' },
-    { kind: 'claude:text', path: ['ask'], text: 'hello' },
-    { kind: 'task:end', path: ['ask'], taskKind: 'call', durationMs: 0 },
-  ]);
-  const entries = taskEntries(s, 'ask');
-  expect(kinds(entries)).toEqual(['task-start', 'text', 'task-end']);
-});
-
-test('task:error flushes any pending text buffered before it', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['ask'], taskKind: 'call' },
-    { kind: 'claude:thinking', path: ['ask'], text: 'pondering...' },
-    { kind: 'task:error', path: ['ask'], taskKind: 'call', message: 'boom' },
-  ]);
-  const entries = taskEntries(s, 'ask');
-  expect(kinds(entries)).toEqual(['task-start', 'thinking', 'task-error']);
+  expect(kinds(rec.written)).toEqual(['task-start', 'shell-stdout', 'shell-stderr', 'task-end']);
 });
 
 test('costUsd accumulates totalCostUsd from each task:end', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['a'], taskKind: 'call' },
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['a'], taskKind: 'call', taskId: 'a1' },
     {
       kind: 'task:end',
       path: ['a'],
       taskKind: 'call',
+      taskId: 'a1',
       durationMs: 0,
       output: { totalCostUsd: 0.03 },
     },
-    { kind: 'task:start', path: ['b'], taskKind: 'call' },
+    { kind: 'task:start', path: ['b'], taskKind: 'call', taskId: 'b1' },
     {
       kind: 'task:end',
       path: ['b'],
       taskKind: 'call',
+      taskId: 'b1',
       durationMs: 0,
       output: { totalCostUsd: 0.07 },
     },
   ]);
-  expect(s.costUsd).toBeCloseTo(0.1, 5);
+  expect(rec.store.state.costUsd).toBeCloseTo(0.1, 5);
 });
 
-test('task:start re-entry flushes any buffered text from the prior run', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['loop', 'body'], taskKind: 'call' },
-    { kind: 'claude:text', path: ['loop', 'body'], text: 'half-said' },
-    // Re-entry without an intervening task:end — should NOT lose 'half-said'.
-    { kind: 'task:start', path: ['loop', 'body'], taskKind: 'call' },
+test('claude:end finalizes pending text/Read group/orphan tools without task:end', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['ask'], taskKind: 'call', taskId: 'a1' },
+    { kind: 'claude:text', path: ['ask'], taskId: 'a1', text: 'hello' },
+    { kind: 'claude:end', path: ['ask'], taskId: 'a1' },
   ]);
-  const entries = taskEntries(s, 'loop>body');
-  expect(kinds(entries)).toEqual(['task-start', 'text', 'task-start']);
-  const text = entries[1];
-  if (text?.kind === 'text') expect(text.text).toBe('half-said');
+  // claude:end finalizes — text is now in scrollback even though task is open.
+  expect(kinds(rec.written)).toEqual(['task-start', 'text']);
+  const task = rec.store.state.taskMap.get('a1');
+  expect(task?.runningActivities).toHaveLength(0);
 });
 
-test('consecutive shell:stdout chunks coalesce into a single shell-stdout entry', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['sh'], taskKind: 'run' },
-    { kind: 'shell:stdout', path: ['sh'], chunk: 'line1\n' },
-    { kind: 'shell:stdout', path: ['sh'], chunk: 'line2\n' },
-    { kind: 'task:end', path: ['sh'], taskKind: 'run', durationMs: 0 },
+test('shell:end finalizes pending shell buffers', () => {
+  const rec = makeStore();
+  dispatch(rec, [
+    { kind: 'task:start', path: ['sh'], taskKind: 'run', taskId: 's1' },
+    { kind: 'shell:stdout', path: ['sh'], taskId: 's1', chunk: 'hi' },
+    { kind: 'shell:end', path: ['sh'], taskId: 's1' },
   ]);
-  const entries = taskEntries(s, 'sh');
-  expect(kinds(entries)).toEqual(['task-start', 'shell-stdout', 'task-end']);
-  const out = entries[1];
-  if (out?.kind === 'shell-stdout') expect(out.text).toBe('line1\nline2\n');
+  expect(kinds(rec.written)).toEqual(['task-start', 'shell-stdout']);
 });
 
-test('shell:stdout and shell:stderr interleave by flushing each other', () => {
-  const s = apply(initialState(0), [
-    { kind: 'task:start', path: ['sh'], taskKind: 'run' },
-    { kind: 'shell:stdout', path: ['sh'], chunk: 'hello\n' },
-    { kind: 'shell:stderr', path: ['sh'], chunk: 'warn\n' },
-    { kind: 'shell:stdout', path: ['sh'], chunk: 'bye\n' },
-    { kind: 'task:end', path: ['sh'], taskKind: 'run', durationMs: 0 },
-  ]);
-  const entries = taskEntries(s, 'sh');
-  expect(kinds(entries)).toEqual([
-    'task-start',
-    'shell-stdout',
-    'shell-stderr',
-    'shell-stdout',
-    'task-end',
-  ]);
-});
-
-test('shell:stdout events arriving without an active task are ignored', () => {
-  const s = apply(initialState(0), [{ kind: 'shell:stdout', path: ['sh'], chunk: 'x' }]);
-  expect(s.pending).toHaveLength(0);
-  expect(s.pendingByPath.size).toBe(0);
+test('events for an unknown task instance are ignored or written as orphans', () => {
+  const rec = makeStore();
+  dispatch(rec, [{ kind: 'shell:stdout', path: ['sh'], taskId: 'gone', chunk: 'x' }]);
+  expect(rec.written).toHaveLength(0);
+  expect(rec.store.state.runningTasks).toHaveLength(0);
 });

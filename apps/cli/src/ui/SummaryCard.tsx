@@ -1,9 +1,7 @@
-// src/ui/SummaryCard.tsx
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
-import { formatTotalElapsed } from './format';
-import { glyph, theme } from './theme';
-import type { State } from './useEngineState';
+import type { State } from './hooks/useEngineState';
+import { glyph, theme } from './utils/theme';
 
 export function SummaryCard({
   state,
@@ -46,4 +44,13 @@ export function SummaryCard({
       </Box>
     </Box>
   );
+}
+
+function formatTotalElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rs = s % 60;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m ${rs.toString().padStart(2, '0')}s`;
+  return `${m.toString().padStart(2, '0')}:${rs.toString().padStart(2, '0')}`;
 }

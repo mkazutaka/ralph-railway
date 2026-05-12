@@ -16,7 +16,6 @@ export interface CodexRunResult {
   text: string;
   finalResponse: string;
   threadId: string | null;
-  items: ThreadItem[];
   toolsUsed: string[];
   usage: Usage | null;
   isError: boolean;
@@ -130,7 +129,6 @@ async function consumeEvents(
   let isError = false;
   let error: string | null = null;
   const toolsUsed: string[] = [];
-  const itemsById = new Map<string, ThreadItem>();
   const emittedToolUses = new Set<string>();
   const emittedToolResults = new Set<string>();
 
@@ -158,7 +156,6 @@ async function consumeEvents(
       case 'item.updated':
       case 'item.completed': {
         const item = event.item;
-        itemsById.set(item.id, item);
         if (item.type === 'agent_message' && event.type === 'item.completed') {
           text += item.text;
           // Reuse the existing agent streaming channel. The UI names these
@@ -186,7 +183,6 @@ async function consumeEvents(
     text,
     finalResponse: text,
     threadId,
-    items: [...itemsById.values()],
     toolsUsed,
     usage,
     isError,

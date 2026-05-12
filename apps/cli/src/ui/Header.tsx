@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
 import type { Workflow } from '../io';
-import { theme } from './theme';
+import { theme } from './utils/theme';
 
 export interface HeaderProps {
   workflow: Workflow;
